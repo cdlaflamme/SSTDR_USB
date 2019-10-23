@@ -17,6 +17,8 @@ from PcapPacketReceiver import *
 from concurrent.futures import ThreadPoolExecutor
 import curses
 import matplotlib.pyplot as plt
+import numpy as np
+import pyformulas as pf
 
 def main(screen):
     
@@ -53,9 +55,12 @@ def main(screen):
     with ThreadPoolExecutor(max_workers=1) as executor:
         executor.submit(receiver.run)
 
+        fig = plt.figure()
+        fig.canvas.draw()
         payloadString = b''
         byteCount = 0
         WAVEFORM_BYTE_COUNT = 199 #every waveform region contains 199 payload bytes
+        plot_window = pf.screen(title='SSTDR Correlation Waveform')
 
         while(True):
             #take packet from Q, process in some way
@@ -82,9 +87,16 @@ def main(screen):
                         payloadString = payloadString + p
                         byteCount = byteCount + l
                         if (byteCount >= WAVEFORM_BYTE_COUNT):
+                            #perform processing on raw waveform
                             process_waveform_region(payloadString)
+                            #visualize waveform
                             screen.addstr(7,0,"Received waveform at timestamp: " + str(pBlock.ts_sec + 0.000001*pBlock.ts_usec))
-                            screen.refresh()
+                            screen.refresh()                                                        
+                            #code from https://stackoverflow.com/questions/40126176/fast-live-plotting-in-matplotlib-pyplot
+                            image = np.fromstring(fig.canvas.tostring_rgb(), dtype=np.uint8, sep='')
+                            image = image.reshape(fig.canvas.get_width_height()[::-1] + (3,))
+                            plot_window.update(image)                            
+                            #prepare to receive next waveform region                            
                             payloadString = b''
                             byteCount = 0
                 elif (byteCount > 0):
@@ -110,10 +122,9 @@ def main(screen):
 
 def process_waveform_region(pString):
     waveform = convert_waveform_region(pString)[6:-1]
-    #do anything with this waveform
-    plt.plot(waveform)
-    plt.show()
+    #we can do anything with this waveform
     return waveform
+
     
 def convert_waveform_region(pString):
     """takes a bytestring of len 199, converts it into little-endian int16s"""
