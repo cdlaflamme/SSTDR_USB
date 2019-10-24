@@ -56,7 +56,6 @@ def main(screen):
         executor.submit(receiver.run)
 
         fig = plt.figure()
-        fig.canvas.draw()
         payloadString = b''
         byteCount = 0
         WAVEFORM_BYTE_COUNT = 199 #every waveform region contains 199 payload bytes
@@ -88,12 +87,14 @@ def main(screen):
                         byteCount = byteCount + l
                         if (byteCount >= WAVEFORM_BYTE_COUNT):
                             #perform processing on raw waveform
-                            process_waveform_region(payloadString)
+                            wf = process_waveform_region(payloadString)
                             #visualize waveform
                             screen.addstr(7,0,"Received waveform at timestamp: " + str(pBlock.ts_sec + 0.000001*pBlock.ts_usec))
                             screen.refresh()                                                        
                             #code from https://stackoverflow.com/questions/40126176/fast-live-plotting-in-matplotlib-pyplot
-                            image = np.fromstring(fig.canvas.tostring_rgb(), dtype=np.uint8, sep='')
+                            plt.plot(wf)
+                            fig.canvas.draw()
+                            image = np.frombuffer(fig.canvas.tostring_rgb(), dtype=np.uint8)
                             image = image.reshape(fig.canvas.get_width_height()[::-1] + (3,))
                             plot_window.update(image)                            
                             #prepare to receive next waveform region                            
