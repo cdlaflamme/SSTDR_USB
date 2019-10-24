@@ -20,6 +20,7 @@ import matplotlib.pyplot as plt
 import numpy as np
 import pyformulas as pf
 from collections import deque
+import time
 
 def main(screen):
     
@@ -57,7 +58,7 @@ def main(screen):
     #set up threads:
     #first thread: processes packets using receiver.run()
     #second thread: maintains a deque of *waveforms* and visualizes them
-    with ThreadPoolExecutor(max_workers=2) as executor:
+    with ThreadPoolExecutor(max_workers=3) as executor:
         executor.submit(receiver.run)
         executor.submit(plot_waveforms, wf_deque)
 
@@ -77,8 +78,8 @@ def main(screen):
             #show some packet data so it's clear the scanner is working
             if receiver.q.empty() == False:
                 pBlock = receiver.q.get()
-                screen.addstr(5,0,"Received packet at timestamp: " + str(pBlock.ts_sec + 0.000001*pBlock.ts_usec)) 
-                screen.refresh()
+                #screen.addstr(5,0,"Received packet at timestamp: " + str(pBlock.ts_sec + 0.000001*pBlock.ts_usec)) 
+                #screen.refresh()
                 
                 #if received packet may be in a waveform region of the stream:
                 #criteria: input (to host) from endpoint 3 and function == URB_FUNCTION_BULK_OR_INTERRUPT_TRANSFER
@@ -112,7 +113,7 @@ def main(screen):
                 
                 screen.addstr(0,0, "Stopped scanner. Waiting for threads...")
                 screen.refresh()
-                receiver.stop() #TODO why does this hang?
+                receiver.stop() #TODO this hangs (need thread safe event)
                 #executor.shutdown() #performed implicitly by "with" statement
                 screen.addstr(0,0, "Finished. Exiting...")
                 break
@@ -158,7 +159,9 @@ def plot_waveforms(wf_deque):
             fig.canvas.draw()
             image = np.frombuffer(fig.canvas.tostring_rgb(), dtype=np.uint8)
             image = image.reshape(fig.canvas.get_width_height()[::-1] + (3,))
-            plot_window.update(image)        
+            plot_window.update(image)  
+        #polling is bad, can't block with a deque, just sleep for a bit
+        time.sleep(0.25)
 
 
 if (__name__ == '__main__'):
