@@ -19,6 +19,7 @@ import curses
 import matplotlib.pyplot as plt
 import numpy as np
 import pyformulas as pf
+from collections import deque
 
 def main(screen):
     
@@ -43,23 +44,26 @@ def main(screen):
     max_row, max_col = screen.getmaxyx()
     
     #open USBPcap, throwing all output onto a pipe
-    fd_r, fd_w = os.pipe()
-    usbpcap_process = subprocess.Popen(args, stdout=fd_w)
-    
+    usb_fd_r, usb_fd_w = os.pipe()
+    usbpcap_process = subprocess.Popen(args, stdout=usb_fd_w)
     #start receiving usbpcap output and organizing it into packets
-    usb_stream = os.fdopen(fd_r, "rb")
-
+    usb_stream = os.fdopen(usb_fd_r, "rb")
     #set up receiver to process raw USB bytestream
     receiver = PcapPacketReceiver(usb_stream, loop=True)
-    #set up a thread that targets receiver.run()
-    with ThreadPoolExecutor(max_workers=1) as executor:
+    
+    #prepare deque for waveform visualization; only stores 10 most recently received waveforms
+    wf_deque = deque(maxlen=10)
+    
+    #set up threads:
+    #first thread: processes packets using receiver.run()
+    #second thread: maintains a deque of *waveforms* and visualizes them
+    with ThreadPoolExecutor(max_workers=2) as executor:
         executor.submit(receiver.run)
+        executor.submit(plot_waveforms, wf_deque)
 
-        fig = plt.figure()
         payloadString = b''
         byteCount = 0
         WAVEFORM_BYTE_COUNT = 199 #every waveform region contains 199 payload bytes
-        plot_window = pf.screen(title='SSTDR Correlation Waveform')
 
         while(True):
             #take packet from Q, process in some way
@@ -88,15 +92,10 @@ def main(screen):
                         if (byteCount >= WAVEFORM_BYTE_COUNT):
                             #perform processing on raw waveform
                             wf = process_waveform_region(payloadString)
-                            #visualize waveform
+                            wf_deque.append(wf)
+                            #show that we've received a waveform
                             screen.addstr(7,0,"Received waveform at timestamp: " + str(pBlock.ts_sec + 0.000001*pBlock.ts_usec))
                             screen.refresh()                                                        
-                            #code from https://stackoverflow.com/questions/40126176/fast-live-plotting-in-matplotlib-pyplot
-                            plt.plot(wf)
-                            fig.canvas.draw()
-                            image = np.frombuffer(fig.canvas.tostring_rgb(), dtype=np.uint8)
-                            image = image.reshape(fig.canvas.get_width_height()[::-1] + (3,))
-                            plot_window.update(image)                            
                             #prepare to receive next waveform region                            
                             payloadString = b''
                             byteCount = 0
@@ -142,6 +141,24 @@ def convert_waveform_region(pString):
             value = value - 2**16
         concat[i] = value
     return concat
+
+def plot_waveforms(wf_deque):
+    """intended to be run as a separate thread. Takes waveforms from a deque and plots them."""
+    fig = plt.figure()
+    plot_window = pf.screen(title='SSTDR Correlation Waveform')
+
+    #TODO: make this dependent on a halt event
+    while(True):
+        #wait for deque entry
+        if(len(wf_deque) > 0):
+            wf = wf_deque.popleft()
+            #visualize waveform
+            #code from https://stackoverflow.com/questions/40126176/fast-live-plotting-in-matplotlib-pyplot
+            plt.plot(wf)
+            fig.canvas.draw()
+            image = np.frombuffer(fig.canvas.tostring_rgb(), dtype=np.uint8)
+            image = image.reshape(fig.canvas.get_width_height()[::-1] + (3,))
+            plot_window.update(image)        
 
 
 if (__name__ == '__main__'):
