@@ -95,6 +95,8 @@ class PcapPacketReceiver:
     This stream can be from a file, a live network, or stdin.
     "loop" should be true if reading from a stream with no known end, and false
     if reading from a file.
+    "halt_event" is a threading.event that can be set from another thread to
+    tell the receiver's run() function to stop running (used when loop is true)
     
     Packets are assembled into a Queue of Packet objects. This Queue can be
     read from at any time (python Qs are thread safe).
@@ -112,16 +114,13 @@ class PcapPacketReceiver:
     naturally terminate otherwise). The queue can then be read when run()
     returns, and the given in_stream can be closed.
     """
-    def __init__(self, in_stream, loop=False):
-        self.halt = False
-        self.done = False
+    def __init__(self, in_stream, loop=False, halt_event = None):
         self.in_stream = in_stream
         self.q = queue.Queue()
         self.loop = loop
+        self.halt_event = halt_event
             
     def run(self):
-        self.done = False #just in case run() is called twice.
-        self.halt = False
         
         #read first few bytes to consume pcap header (6 4-byte values)
         #we don't use this information, and instead assume our data is little
@@ -130,8 +129,8 @@ class PcapPacketReceiver:
 
         pHeader = self.in_stream.read(4*4) #read first packet header: 4 4-byte values
         
-        while(True):
-            while(self.halt == False and pHeader != b''):
+        while(self.halt_event==None or not self.halt_event.is_set()):
+            while(pHeader != b'' and (self.halt_event==None or not self.halt_event.is_set())):
                 #loop until we've read every packet available
                 pLen = int.from_bytes(pHeader[8:12], 'little')
                 pData = self.in_stream.read(pLen)
@@ -143,16 +142,11 @@ class PcapPacketReceiver:
                 #read header for next block.
                 #if empty, we wait for more (if loop) or finish execution.
                 pHeader = self.in_stream.read(4*4)
-            if (self.loop == False or self.halt == True):
+            if (self.loop == False):
                 break #I miss do-whiles
-            
-        #signify that we're done with the input stream
-        self.done = True
         
-    def stop(self):
-        self.halt = True
-        while(self.done == False and self.loop == True):
-            pass
+    def halt(self):
+        self.halt_event.set()
 
 ##############################################################################
 

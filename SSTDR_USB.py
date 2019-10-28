@@ -10,6 +10,16 @@ Created on Wed Oct 23 13:50:16 2019
 #notices waveforms that are transmitted and visualizes them.
 #waits for user to quit, then tells receiver to halt.
 
+"""
+DEPENDENCIES
+- matplotlib (in conda)
+- numpy (in conda)
+- curses (in pip, use "windows-curses" for windows)
+- pyformulas (in pip)
+    - pyaudio (required by pyformulas, in conda)
+    - portaudio (required by pyformulas, in conda)
+"""
+
 import sys
 import os
 import subprocess
@@ -59,8 +69,8 @@ def main(screen):
     #first thread: processes packets using receiver.run()
     #second thread: maintains a deque of *waveforms* and visualizes them
     with ThreadPoolExecutor(max_workers=3) as executor:
-        executor.submit(receiver.run)
-        executor.submit(plot_waveforms, wf_deque)
+        rec_thread = executor.submit(receiver.run)
+        plt_thread = executor.submit(plot_waveforms, wf_deque)
 
         payloadString = b''
         byteCount = 0
@@ -96,7 +106,7 @@ def main(screen):
                             wf_deque.append(wf)
                             #show that we've received a waveform
                             screen.addstr(7,0,"Received waveform at timestamp: " + str(pBlock.ts_sec + 0.000001*pBlock.ts_usec))
-                            screen.refresh()                                                        
+                            screen.refresh()                                                     
                             #prepare to receive next waveform region                            
                             payloadString = b''
                             byteCount = 0
@@ -109,11 +119,14 @@ def main(screen):
             if (c == ord('q')):
                 screen.addstr(0,0,"Quitting: Terminating scanner...")
                 screen.refresh()                
-                usbpcap_process.terminate()
-                
+                usbpcap_process.terminate()                
                 screen.addstr(0,0, "Stopped scanner. Waiting for threads...")
                 screen.refresh()
-                receiver.stop() #TODO this hangs (need thread safe event)
+                receiver.halt()
+                plt_thread.cancel()
+                while(rec_thread.running()):
+                    pass
+                usb_stream.close()
                 #executor.shutdown() #performed implicitly by "with" statement
                 screen.addstr(0,0, "Finished. Exiting...")
                 break
