@@ -10,6 +10,12 @@ Created on Wed Oct 23 13:50:16 2019
 #notices waveforms that are transmitted and visualizes them.
 #waits for user to quit, then tells receiver to halt.
 
+#TODO remove pyformulas, matplotlib; add pygame dependecy, create pygame window, perform plotting in pygame
+#remove curses too???
+#add testing mode, where USBPcap is not used, and instead an input file is looped forever
+#pygame loop should be fast for event checking, but visuals only have to update when we receive and process a waveform
+#need to look at and use mashaad code
+
 """
 DEPENDENCIES
 - matplotlib (in conda)
