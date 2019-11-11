@@ -10,11 +10,9 @@ Created on Wed Oct 23 13:50:16 2019
 #notices waveforms that are transmitted and visualizes them.
 #waits for user to quit, then tells receiver to halt.
 
-#TODO remove pyformulas, matplotlib; add pygame dependecy, create pygame window, perform plotting in pygame
-#remove curses too???
+#TODO
 #add testing mode, where USBPcap is not used, and instead an input file is looped forever
-#pygame loop should be fast for event checking, but visuals only have to update when we receive and process a waveform
-#need to look at and use mashaad code
+#need to look at and use mashaad code to perform fault detection
 
 """
 DEPENDENCIES
@@ -39,6 +37,9 @@ from collections import deque
 import time
 
 def main(screen):
+    ######################################################
+    ##                    STARTUP                       ##
+    ######################################################
     
     #read arguments, prepare to launch usbpcap
     if (len(sys.argv) != 3):
@@ -50,15 +51,14 @@ def main(screen):
     path = "C:\\Program Files\\USBPcap\\USBPcapCMD.exe"
     args = [path, "-d", "\\\\.\\USBPcap" + str(arg_filter), "--devices", str(arg_address), "-o", "-"]
 
-    #set up scanning window
-    print("Opening scanner window...")
-    screen.clear()
-    screen.nodelay(True)
-    screen.addstr(0,0,"Scanning on filter " + str(arg_filter) + ", address " + str(arg_address) + "...")
-    screen.addstr(1,0,"Press 'q' to stop.")
-    screen.addstr(3,0,"System OK.")
-    screen.refresh()    
-    max_row, max_col = screen.getmaxyx()
+    #set up scanning interface in curses (cscreen = curses screen)
+    print("Opening scanner interface...")
+    cscreen.clear()
+    cscreen.nodelay(True)
+    cscreen.addstr(0,0,"Scanning on filter " + str(arg_filter) + ", address " + str(arg_address) + "...")
+    cscreen.addstr(1,0,"Press 'q' to stop.")
+    cscreen.addstr(3,0,"System OK.")
+    cscreen.refresh()    
     
     #open USBPcap, throwing all output onto a pipe
     usb_fd_r, usb_fd_w = os.pipe()
@@ -75,11 +75,9 @@ def main(screen):
     plot_window = pf.screen(title='SSTDR Correlation Waveform')
     
     #set up threads:
-    #first thread: processes packets using receiver.run()
-    #second thread: maintains a deque of *waveforms* and visualizes them
+    #first child thread: receives and interprets packets using receiver.run()
     with ThreadPoolExecutor(max_workers=3) as executor:
         rec_thread = executor.submit(receiver.run)
-        #plt_thread = executor.submit(plot_waveforms, wf_deque)
 
         payloadString = b''
         byteCount = 0
@@ -97,8 +95,8 @@ def main(screen):
             #show some packet data so it's clear the scanner is working
             if receiver.q.empty() == False:
                 pBlock = receiver.q.get()
-                #screen.addstr(5,0,"Received packet at timestamp: " + str(pBlock.ts_sec + 0.000001*pBlock.ts_usec)) 
-                #screen.refresh()
+                #cscreen.addstr(5,0,"Received packet at timestamp: " + str(pBlock.ts_sec + 0.000001*pBlock.ts_usec)) 
+                #cscreen.refresh()
                 
                 #if received packet may be in a waveform region of the stream:
                 #criteria: input (to host) from endpoint 3 and function == URB_FUNCTION_BULK_OR_INTERRUPT_TRANSFER
@@ -114,8 +112,8 @@ def main(screen):
                             wf = process_waveform_region(payloadString)
                             wf_deque.append(wf)
                             #show that we've received a waveform
-                            screen.addstr(7,0,"Received waveform at timestamp: " + str(pBlock.ts_sec + 0.000001*pBlock.ts_usec))
-                            screen.refresh()                                                     
+                            cscreen.addstr(7,0,"Received waveform at timestamp: " + str(pBlock.ts_sec + 0.000001*pBlock.ts_usec))
+                            cscreen.refresh()                                                     
                             #prepare to receive next waveform region                            
                             payloadString = b''
                             byteCount = 0
@@ -134,20 +132,20 @@ def main(screen):
                 plot_window.update(image) 
             
             #check for quit
-            c = screen.getch()
+            c = cscreen.getch()
             if (c == ord('q')):
-                screen.addstr(0,0,"Quitting: Terminating scanner...")
-                screen.refresh()                
+                cscreen.addstr(0,0,"Quitting: Terminating scanner...")
+                cscreen.refresh()                
                 usbpcap_process.terminate()                
-                screen.addstr(0,0, "Stopped scanner. Waiting for threads...")
-                screen.refresh()
+                cscreen.addstr(0,0, "Stopped scanner. Waiting for threads...")
+                cscreen.refresh()
                 receiver.halt()
                 #plt_thread.cancel()
                 while(rec_thread.running()):
                     pass
                 usb_stream.close()
                 #executor.shutdown() #performed implicitly by "with" statement
-                screen.addstr(0,0, "Finished. Exiting...")
+                cscreen.addstr(0,0, "Finished. Exiting...")
                 break
 
         
@@ -175,6 +173,7 @@ def convert_waveform_region(pString):
         concat[i] = value
     return concat
 
+#deprecated. plotting moved to main thread.
 def plot_waveforms(wf_deque):
     """intended to be run as a separate thread. Takes waveforms from a deque and plots them."""
     fig = plt.figure()
