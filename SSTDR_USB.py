@@ -38,8 +38,6 @@ import pyformulas as pf
 from collections import deque
 import time
 
-import 
-
 def main(screen):
     
     #read arguments, prepare to launch usbpcap
@@ -124,9 +122,8 @@ def main(screen):
                 elif (byteCount > 0):
                     payloadString = b''
                     byteCount = 0
-            
-            else:
-                #q was empty, we have some extra time
+            elif len(wf_deque) > 0:
+                #q was empty, we have some extra time to plot a waveform
                 wf = wf_deque.popleft()
                 #visualize waveform
                 #code from https://stackoverflow.com/questions/40126176/fast-live-plotting-in-matplotlib-pyplot
@@ -135,7 +132,7 @@ def main(screen):
                 image = np.frombuffer(fig.canvas.tostring_rgb(), dtype=np.uint8)
                 image = image.reshape(fig.canvas.get_width_height()[::-1] + (3,))
                 plot_window.update(image) 
-                
+            
             #check for quit
             c = screen.getch()
             if (c == ord('q')):
