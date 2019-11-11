@@ -26,6 +26,7 @@ WIRE_WIDTH = 2
 #initializing pygame
 pygame.init()
 screen = pygame.display.set_mode(SCREEN_SIZE)
+pygame.display.set_caption("PV Fault Scanner")
 
 #loading assets, preparing pre-baked surfaces
 TERMINAL_FONT = pygame.font.Font(None, 40)

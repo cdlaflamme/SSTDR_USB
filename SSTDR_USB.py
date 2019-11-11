@@ -38,6 +38,8 @@ import pyformulas as pf
 from collections import deque
 import time
 
+import 
+
 def main(screen):
     
     #read arguments, prepare to launch usbpcap
@@ -69,14 +71,17 @@ def main(screen):
     receiver = PcapPacketReceiver(usb_stream, loop=True)
     
     #prepare deque for waveform visualization; only stores 10 most recently received waveforms
-    wf_deque = deque(maxlen=10)
+    wf_deque = deque(maxlen=4)
+    
+    fig = plt.figure()
+    plot_window = pf.screen(title='SSTDR Correlation Waveform')
     
     #set up threads:
     #first thread: processes packets using receiver.run()
     #second thread: maintains a deque of *waveforms* and visualizes them
     with ThreadPoolExecutor(max_workers=3) as executor:
         rec_thread = executor.submit(receiver.run)
-        plt_thread = executor.submit(plot_waveforms, wf_deque)
+        #plt_thread = executor.submit(plot_waveforms, wf_deque)
 
         payloadString = b''
         byteCount = 0
@@ -120,6 +125,17 @@ def main(screen):
                     payloadString = b''
                     byteCount = 0
             
+            else:
+                #q was empty, we have some extra time
+                wf = wf_deque.popleft()
+                #visualize waveform
+                #code from https://stackoverflow.com/questions/40126176/fast-live-plotting-in-matplotlib-pyplot
+                plt.plot(wf)
+                fig.canvas.draw()
+                image = np.frombuffer(fig.canvas.tostring_rgb(), dtype=np.uint8)
+                image = image.reshape(fig.canvas.get_width_height()[::-1] + (3,))
+                plot_window.update(image) 
+                
             #check for quit
             c = screen.getch()
             if (c == ord('q')):
@@ -129,7 +145,7 @@ def main(screen):
                 screen.addstr(0,0, "Stopped scanner. Waiting for threads...")
                 screen.refresh()
                 receiver.halt()
-                plt_thread.cancel()
+                #plt_thread.cancel()
                 while(rec_thread.running()):
                     pass
                 usb_stream.close()
