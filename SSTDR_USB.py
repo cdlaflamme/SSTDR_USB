@@ -35,8 +35,10 @@ import numpy as np
 import pyformulas as pf
 from collections import deque
 import time
+import pygame
+import fault_detection
 
-def main(screen):
+def main(cscreen):
     ######################################################
     ##                    STARTUP                       ##
     ######################################################
@@ -74,6 +76,135 @@ def main(screen):
     fig = plt.figure()
     plot_window = pf.screen(title='SSTDR Correlation Waveform')
     
+    ######################################################
+    ##                     PYGAME                       ##
+    ######################################################
+
+    #constants
+    SCREEN_SIZE = SCREEN_X, SCREEN_Y = 900, 700
+    TERMINAL_Y = 200
+    VISUAL_Y = SCREEN_Y - TERMINAL_Y
+    BORDER_WIDTH = 3
+    BORDER_PADDING = 2
+
+    COLOR_WHITE     = (225, 225, 225)
+    COLOR_GREY      = (128, 128, 128)
+    COLOR_ORANGE    = (255, 140,   0)
+    COLOR_BLUE      = (  0,   0, 200)
+    COLOR_BLACK     = ( 10,  10,  10)
+
+    BG_COLOR = COLOR_GREY
+    TERMINAL_COLOR = COLOR_WHITE
+    WIRE_COLOR = COLOR_BLUE
+    TEXT_COLOR = COLOR_BLACK
+
+    PANEL_SCALE = 1/6
+    PANEL_PADDING = (100, 25)
+    WIRE_WIDTH = 2
+
+    #initializing pygame
+    pygame.init()
+    pscreen = pygame.display.set_mode(SCREEN_SIZE)
+    pygame.display.set_caption("PV Fault Scanner")
+
+    #loading assets, preparing pre-baked surfaces
+    TERMINAL_FONT = pygame.font.Font(None, 40)
+    STATUS_FONT = pygame.font.Font(None, 20)
+
+    panel_surf = pygame.image.load(os.path.join("Assets", "PV_panel_CharlesMJames_CC.jpg"))
+    panel_surf = pygame.transform.scale(panel_surf, (int(panel_surf.get_width()*PANEL_SCALE), int(panel_surf.get_height()*PANEL_SCALE)))
+    panel_rect = panel_surf.get_rect()
+
+    grass_surf = pygame.image.load(os.path.join("Assets", "grass.png"))
+    grass_rect = grass_surf.get_rect()
+
+    hazard_surf = pygame.image.load(os.path.join("Assets", "hazard.png"))
+    hazard_rect = hazard_surf.get_rect()
+
+    bg_surf = pygame.Surface(pscreen.get_size())
+    bg_surf.convert()
+    bg_rect = bg_surf.get_rect()
+    bg_surf.fill(BG_COLOR)
+    """
+    for r in range(int(SCREEN_Y / grass_rect.h+1)):
+        for c in range(int(SCREEN_X / grass_rect.w+1)):
+            bg_surf.blit(grass_surf, grass_rect)
+            grass_rect.move_ip(grass_rect.w,0)
+        grass_rect.x = 0
+        grass_rect.move_ip(0, grass_rect.h)
+    """
+    line_surf = pygame.Surface((SCREEN_X, BORDER_WIDTH))
+    line_surf.fill(COLOR_ORANGE)
+    line_rect = line_surf.get_rect()
+    line_rect.y = VISUAL_Y - BORDER_WIDTH - int(BORDER_PADDING/2)
+    bg_surf.blit(line_surf, line_rect)
+    line_surf.fill(COLOR_BLUE)
+    line_rect.move_ip(0, BORDER_WIDTH + BORDER_PADDING)
+    bg_surf.blit(line_surf, line_rect)
+
+    text_surf = STATUS_FONT.render("Scanning at 24MHz...", True, COLOR_WHITE)
+    text_rect = text_surf.get_rect()
+    text_rect.move_ip(3,3)
+    bg_surf.blit(text_surf, text_rect)
+
+    text_surf = STATUS_FONT.render("Selected Array Layout: 'test_panel_layout'", True, COLOR_WHITE)
+    text_rect = text_surf.get_rect()
+    text_rect.x = 3
+    text_rect.bottom = VISUAL_Y - BORDER_WIDTH - int(0.5*BORDER_PADDING) - 3
+    bg_surf.blit(text_surf, text_rect)
+
+    ARRAY_SIZE = (3*(panel_rect.w + PANEL_PADDING[0]), 2*(panel_rect.h + PANEL_PADDING[1]))
+    array_surf = pygame.Surface(ARRAY_SIZE, pygame.SRCALPHA)
+    array_surf.convert()
+    r = 0
+    PANEL_COORDS = [(c*(PANEL_PADDING[0] + panel_rect.w), r*(PANEL_PADDING[1] + panel_rect.h)) for c in range(0,2)]
+    PANEL_COORDS.insert(2,(2*(PANEL_PADDING[0] + panel_rect.w), 0.5*(PANEL_PADDING[1] + panel_rect.h)))
+    r = 1
+    PANEL_COORDS = PANEL_COORDS + [(c*(PANEL_PADDING[0] + panel_rect.w), r*(PANEL_PADDING[1] + panel_rect.h)) for c in range(1,-1,-1)]
+
+    """
+    for r in range(2):
+        for c in range(2):
+            array_surf.blit(panel_surf, panel_rect)
+            panel_rect.move_ip(panel_rect.w + PANEL_PADDING[0],0)
+        panel_rect.x = 0
+        panel_rect.move_ip(0, panel_rect.h + PANEL_PADDING[1])
+    panel_rect.move_ip(2*(panel_rect.w + PANEL_PADDING[0]), int(-1.5*(panel_rect.h + PANEL_PADDING[1])))
+    array_surf.blit(panel_surf, panel_rect)
+    """
+    for p in PANEL_COORDS:
+        panel_rect.topleft = p
+        array_surf.blit(panel_surf, panel_rect)
+
+    array_rect = array_surf.get_rect()
+    array_rect.center = (int(SCREEN_X*2/3), int(VISUAL_Y/2))
+
+    WIRE_COORDS = []
+    for p in PANEL_COORDS:
+        panel_rect.topleft = p
+        WIRE_COORDS.append((panel_rect.center[0] + array_rect.topleft[0], panel_rect.center[1] + array_rect.topleft[1]))
+    WIRE_COORDS.insert(0,(0,WIRE_COORDS[0][1]))
+    WIRE_COORDS.append((0,WIRE_COORDS[-1][1]))
+    pygame.draw.lines(bg_surf, WIRE_COLOR, False, WIRE_COORDS, WIRE_WIDTH)
+
+    term_surf = pygame.Surface((SCREEN_X, TERMINAL_Y - int(BORDER_PADDING/2) - BORDER_WIDTH))
+    term_surf.fill(TERMINAL_COLOR)
+    term_rect = term_surf.get_rect()
+    term_rect.bottom = SCREEN_Y
+
+    ######################################################
+    ##                 FAULT DETECTION                  ##
+    ######################################################
+
+    detector = fault_detection.Detector()
+    fault = (fault_detection.FAULT_NONE, 0)
+    #TODO base this off of array layout file and distances provided within
+    FEET_TO_PIXELS = 2.1
+    
+    ######################################################
+    ##                      LOOP                        ##
+    ######################################################
+    
     #set up threads:
     #first child thread: receives and interprets packets using receiver.run()
     with ThreadPoolExecutor(max_workers=3) as executor:
@@ -110,6 +241,7 @@ def main(screen):
                         if (byteCount >= WAVEFORM_BYTE_COUNT):
                             #perform processing on raw waveform
                             wf = process_waveform_region(payloadString)
+                            fault = detector.detect_faults(wf)
                             wf_deque.append(wf)
                             #show that we've received a waveform
                             cscreen.addstr(7,0,"Received waveform at timestamp: " + str(pBlock.ts_sec + 0.000001*pBlock.ts_usec))
@@ -121,17 +253,67 @@ def main(screen):
                     payloadString = b''
                     byteCount = 0
             elif len(wf_deque) > 0:
-                #q was empty, we have some extra time to plot a waveform
+                #q was empty, we have some extra time to visualize things
                 wf = wf_deque.popleft()
-                #visualize waveform
+                
+                #PYFORMULAS: visualize waveform
                 #code from https://stackoverflow.com/questions/40126176/fast-live-plotting-in-matplotlib-pyplot
                 plt.plot(wf)
                 fig.canvas.draw()
                 image = np.frombuffer(fig.canvas.tostring_rgb(), dtype=np.uint8)
                 image = image.reshape(fig.canvas.get_width_height()[::-1] + (3,))
-                plot_window.update(image) 
+                plot_window.update(image)
+                
+                
+                #PYGAME: fault visualization
+                
+                for event in pygame.event.get():
+                    if event.type == pygame.QUIT or (event.type == pygame.KEYDOWN and event.key == pygame.K_ESCAPE):
+                        pygame.display.quit()
+                        pygame.quit()
+                    if event.type == pygame.KEYDOWN:
+                        if event.key == pygame.K_b:
+                            pass  #TODO set baseline
+                
+                #per-frame logic here
+                is_fault = (fault[0] != fault_detection.FAULT_NONE)
+                fault_d_f = fault[1]
+                fault_d_p = fault_d_f * FEET_TO_PIXELS
+                
+                if (is_fault):
+                    d = 0
+                    px = WIRE_COORDS[0][0]
+                    py = WIRE_COORDS[0][1]
+                    hazard_point = WIRE_COORDS[-1]
+                    for x,y in WIRE_COORDS[1:]:
+                        step = ((x-px)**2 + (y-py)**2)**0.5
+                        if (d+step >= fault_d_p):
+                            hsr = (fault_d_p - d)/step #hazard step ratio
+                            hazard_point = (px + (x-px)*hsr, py + (y-py)*hsr)
+                            break
+                        else:
+                            px = x
+                            py = y
+                            d = d + step
+                    hazard_rect.center = hazard_point
+                    
+                    fault_name = fault_detection.get_fault_name(fault[0])
+                    fault_text_surf = TERMINAL_FONT.render(fault_name + " located at " + str(fault_d_f) + " feet", True, TEXT_COLOR)
+                else:
+                    fault_text_surf = TERMINAL_FONT.render("System OK", True, TEXT_COLOR)
+                fault_text_rect = fault_text_surf.get_rect()
+                fault_text_rect.center = term_rect.center
+                
+                #drawing
+                pscreen.blit(bg_surf, bg_rect)
+                pscreen.blit(term_surf, term_rect)
+                pscreen.blit(fault_text_surf, fault_text_rect)
+                pscreen.blit(array_surf, array_rect)
+                if (is_fault):
+                    pscreen.blit(hazard_surf, hazard_rect)
+                pygame.display.flip()
             
-            #check for quit
+            #CURSES: check for quit
             c = cscreen.getch()
             if (c == ord('q')):
                 cscreen.addstr(0,0,"Quitting: Terminating scanner...")
@@ -156,7 +338,6 @@ def process_waveform_region(pString):
     #we can do anything with this waveform
     return waveform
 
-    
 def convert_waveform_region(pString):
     """takes a bytestring of len 199, converts it into little-endian int16s"""
     N = 199
