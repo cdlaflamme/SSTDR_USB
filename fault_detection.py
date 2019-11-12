@@ -35,9 +35,9 @@ class Detector:
         self.baseline = None
         self.method = method
         #TODO need some characterization of cables... conversion of sample index to feet based on frequency and VOP
-        self.VOP = 0.71
-        self.units_per_sample = 3.63716 #from .lws file... doesn't seem extremely accurate
-        self.bsl_deviation_thresh = 0.10
+        self.VOP = 0.71 #from .lws file
+        self.units_per_sample = 3.63716 #from .lws file... accuracy not verified
+        self.bls_deviation_thresh = 0.10 #(B)ase(L)ine (S)ubtraction deviation threshold: % variations smaller than this in the baseline-subtracted waveform will be ignored
         
     def set_baseline(self, bl):
         self.baseline = np.array(bl)
@@ -53,7 +53,7 @@ class Detector:
             bls = wf-self.baseline
             abs_bls = np.abs(bls)
             for dev_index in range(len(self.baseline)):
-                if (abs_bls[dev_index] >= self.bsl_deviation_thresh*max(self.baseline)): break
+                if (abs_bls[dev_index] >= self.bls_deviation_thresh*max(self.baseline)): break
             if (dev_index == len(wf)-1): return fault
             locs = scipy.signal.find_peaks(abs_bls)[0]
             locs = list(filter(lambda x: x >= dev_index, locs))

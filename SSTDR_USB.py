@@ -278,9 +278,9 @@ def main(cscreen):
                         if event.key == pygame.K_b:
                             detector.set_baseline(wf)#set baseline
                         elif event.key == pygame.K_LEFT:
-                            detector.bsl_deviation_thresh = detector.bsl_deviation_thresh - 0.01 #adjust deviation threshold for peak location
+                            detector.bls_deviation_thresh = detector.bls_deviation_thresh - 0.01 #adjust deviation threshold for peak location
                         elif event.key == pygame.K_RIGHT:
-                            detector.bsl_deviation_thresh = detector.bsl_deviation_thresh + 0.01
+                            detector.bls_deviation_thresh = detector.bls_deviation_thresh + 0.01
                             
                 #per-frame logic here
                 is_fault = (fault[0] != fault_detection.FAULT_NONE)
@@ -311,7 +311,7 @@ def main(cscreen):
                 fault_text_rect = fault_text_surf.get_rect()
                 fault_text_rect.center = term_rect.center
                 
-                param_text_surf = STATUS_FONT.render("BSL deviation threshold:" + str(detector.bsl_deviation_thresh), True, COLOR_WHITE)
+                param_text_surf = STATUS_FONT.render("BLS deviation threshold:" + str(detector.bls_deviation_thresh), True, COLOR_WHITE)
                 param_text_rect = param_text_surf.get_rect()
                 param_text_rect.bottomright = (SCREEN_X-3, VISUAL_Y - BORDER_WIDTH - int(0.5*BORDER_PADDING) - 3)
                 
