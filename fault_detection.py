@@ -2,6 +2,9 @@
 #a collection of fault detection methods and constants for PV array fault detection
 #in several cases, an enum would be more appropriate, but the python implementation of enums is headache-inducing
 
+import scipy.signal
+import numpy as np
+
 #constants representing fault type. returned by "detect_faults()"
 FAULT_NONE = 0
 FAULT_OPEN = 1
@@ -29,14 +32,33 @@ def get_fault_name(fault_ID):
 
 class Detector:
     def __init__(self, baseline = [], method = METHOD_BASELINE_SUBTRACTION):
-        self.baseline = baseline
+        self.baseline = np.array(baseline)
         self.method = method
         #TODO need some characterization of cables... conversion of sample index to feet based on frequency and VOP
-        
-    #returns a tuple: (fault type, distance to faule (in feet))
+        self.VOP = 0.71
+        self.units_per_sample = 3.63716 #from .lws file... doesn't seem extremely accurate
+    
+    def set_baseline(self, baseline):
+        self.baseline = np.array(baseline)
+    
+    #returns a tuple: (fault type, distance to fault (in feet))
     def detect_faults(self, waveform):
-        fault = (FAULT_NONE, 5)
+        fault = (FAULT_NONE, 0)
         if self.method == METHOD_BASELINE_SUBTRACTION:
-            #TODO perform baseline subtraction and return a fault
-            pass
+            #perform baseline subtraction and return a fault
+            zero_index = np.argmax(self.baseline)
+            wf = np.array(waveform)
+            bls = wf-self.baseline
+            abs_bls = np.abs(bls)
+            for dev_index in range(len(self.baseline)):
+                if (abs_bls[dev_index] >= 0.01*max(self.baseline)): break
+            locs = scipy.signal.find_peaks(abs_bls)[0]
+            locs = list(filter(lambda x: x >= dev_index, locs))
+            fault_index = locs[1] #index 0 is a sidelobe
+            if (bls[fault_index] > 0):
+                fault_type = FAULT_OPEN
+            else:
+                fault_type = FAULT_SHORT
+            
+            fault = (fault_type, self.units_per_sample*(fault_index-zero_index))
         return fault
