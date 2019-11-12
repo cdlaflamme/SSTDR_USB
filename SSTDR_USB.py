@@ -254,11 +254,14 @@ def main(cscreen):
                     byteCount = 0
             elif len(wf_deque) > 0:
                 #q was empty, we have some extra time to visualize things
-                wf = wf_deque.popleft()
+                wf = np.array(wf_deque.popleft())
                 
                 #PYFORMULAS: visualize waveform
                 #code from https://stackoverflow.com/questions/40126176/fast-live-plotting-in-matplotlib-pyplot
-                plt.plot(wf)
+                if (detector.baseline is None): 
+                    plt.plot(wf)
+                else:
+                    plt.plot(wf-detector.baseline)
                 fig.canvas.draw()
                 image = np.frombuffer(fig.canvas.tostring_rgb(), dtype=np.uint8)
                 image = image.reshape(fig.canvas.get_width_height()[::-1] + (3,))
@@ -273,8 +276,12 @@ def main(cscreen):
                         pygame.quit()
                     if event.type == pygame.KEYDOWN:
                         if event.key == pygame.K_b:
-                            pass  #TODO set baseline
-                
+                            detector.set_baseline(wf)#set baseline
+                        elif event.key == pygame.K_LEFT:
+                            detector.bsl_deviation_thresh = detector.bsl_deviation_thresh - 0.01 #adjust deviation threshold for peak location
+                        elif event.key == pygame.K_RIGHT:
+                            detector.bsl_deviation_thresh = detector.bsl_deviation_thresh + 0.01
+                            
                 #per-frame logic here
                 is_fault = (fault[0] != fault_detection.FAULT_NONE)
                 fault_d_f = fault[1]
@@ -304,10 +311,15 @@ def main(cscreen):
                 fault_text_rect = fault_text_surf.get_rect()
                 fault_text_rect.center = term_rect.center
                 
+                param_text_surf = STATUS_FONT.render("BSL deviation threshold:" + str(detector.bsl_deviation_thresh), True, COLOR_WHITE)
+                param_text_rect = param_text_surf.get_rect()
+                param_text_rect.bottomright = (SCREEN_X-3, VISUAL_Y - BORDER_WIDTH - int(0.5*BORDER_PADDING) - 3)
+                
                 #drawing
                 pscreen.blit(bg_surf, bg_rect)
                 pscreen.blit(term_surf, term_rect)
                 pscreen.blit(fault_text_surf, fault_text_rect)
+                pscreen.blit(param_text_surf, param_text_rect)
                 pscreen.blit(array_surf, array_rect)
                 if (is_fault):
                     pscreen.blit(hazard_surf, hazard_rect)

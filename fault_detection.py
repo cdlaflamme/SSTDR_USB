@@ -31,27 +31,30 @@ def get_fault_name(fault_ID):
         return "Unnamed fault"
 
 class Detector:
-    def __init__(self, baseline = [], method = METHOD_BASELINE_SUBTRACTION):
-        self.baseline = np.array(baseline)
+    def __init__(self, method = METHOD_BASELINE_SUBTRACTION):
+        self.baseline = None
         self.method = method
         #TODO need some characterization of cables... conversion of sample index to feet based on frequency and VOP
         self.VOP = 0.71
         self.units_per_sample = 3.63716 #from .lws file... doesn't seem extremely accurate
-    
-    def set_baseline(self, baseline):
-        self.baseline = np.array(baseline)
+        self.bsl_deviation_thresh = 0.10
+        
+    def set_baseline(self, bl):
+        self.baseline = np.array(bl)
     
     #returns a tuple: (fault type, distance to fault (in feet))
     def detect_faults(self, waveform):
         fault = (FAULT_NONE, 0)
         if self.method == METHOD_BASELINE_SUBTRACTION:
             #perform baseline subtraction and return a fault
+            if (self.baseline is None): return fault
             zero_index = np.argmax(self.baseline)
             wf = np.array(waveform)
             bls = wf-self.baseline
             abs_bls = np.abs(bls)
             for dev_index in range(len(self.baseline)):
-                if (abs_bls[dev_index] >= 0.01*max(self.baseline)): break
+                if (abs_bls[dev_index] >= self.bsl_deviation_thresh*max(self.baseline)): break
+            if (dev_index == len(wf)-1): return fault
             locs = scipy.signal.find_peaks(abs_bls)[0]
             locs = list(filter(lambda x: x >= dev_index, locs))
             fault_index = locs[1] #index 0 is a sidelobe
