@@ -196,7 +196,7 @@ def main(cscreen):
     ##                 FAULT DETECTION                  ##
     ######################################################
 
-    detector = fault_detection.Detector()
+    detector = fault_detection.Detector(fault_detection.METHOD_BLS_DEVIATION_CORRECTION)
     fault = (fault_detection.FAULT_NONE, 0)
     #TODO base this off of array layout file and distances provided within
     FEET_TO_PIXELS = 2.1
@@ -256,8 +256,11 @@ def main(cscreen):
                 #q was empty, we have some extra time to visualize things
                 wf = np.array(wf_deque.popleft())
                 
-                #PYFORMULAS: visualize waveform
+                ###################################################################################################################################
+                #       PYFORMULAS: visualize waveform
+                ###################################################################################################################################
                 #code from https://stackoverflow.com/questions/40126176/fast-live-plotting-in-matplotlib-pyplot
+                plt.clf()
                 if (detector.baseline is None): 
                     plt.plot(wf)
                 else:
@@ -267,9 +270,9 @@ def main(cscreen):
                 image = image.reshape(fig.canvas.get_width_height()[::-1] + (3,))
                 plot_window.update(image)
                 
-                
-                #PYGAME: fault visualization
-                
+                ###################################################################################################################################
+                #       PYGAME: fault visualization
+                ###################################################################################################################################
                 for event in pygame.event.get():
                     if event.type == pygame.QUIT or (event.type == pygame.KEYDOWN and event.key == pygame.K_ESCAPE):
                         pygame.display.quit()
@@ -277,6 +280,8 @@ def main(cscreen):
                     if event.type == pygame.KEYDOWN:
                         if event.key == pygame.K_b:
                             detector.set_baseline(wf)#set baseline
+                        elif event.key == pygame.K_t:
+                            detector.set_terminal(wf)#set terminal waveform
                         elif event.key == pygame.K_LEFT:
                             detector.bls_deviation_thresh = detector.bls_deviation_thresh - 0.01 #adjust deviation threshold for peak location
                         elif event.key == pygame.K_RIGHT:
