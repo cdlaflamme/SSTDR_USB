@@ -38,8 +38,12 @@ class Detector:
         #TODO need some characterization of cables... conversion of sample index to feet based on frequency and VOP
         self.VOP = 0.71 #from .lws file
         self.units_per_sample = 3.63716 #from .lws file... accuracy not verified
-        self.bls_deviation_thresh = 0.10 #(B)ase(L)ine (S)ubtraction deviation threshold: % variations smaller than this in the baseline-subtracted waveform will be ignored
-    
+        self.bls_deviation_thresh = 0.10 #(B)ase(L)ine (S)ubtraction deviation threshold: percent variations smaller than this in the baseline-subtracted waveform will be ignored
+        self.terminal_dev_index = 0
+        self.terminal_peak_index = 0
+        self.terminal_pulse_width = 0
+        
+        
     #takes as input a waveform from a healthy system
     def set_baseline(self, bl):
         self.baseline = np.array(bl)
