@@ -3,6 +3,7 @@
 #in several cases, an enum would be more appropriate, but the python implementation of enums is headache-inducing
 
 import scipy.signal
+import scipy.interpolate
 import numpy as np
 
 #constants representing fault type. returned by "detect_faults()"
@@ -31,28 +32,37 @@ def get_fault_name(fault_ID):
     else:
         return "Unnamed fault"
 
+def spline_interpolate(x, y, N):
+    tck = scipy.interpolate.splrep(x, y)
+    x_i = linspace(min(x), max(x), N)
+    spl = scipy.interpolate.splev(x_i, tck)
+    return (x_i, spl)
+
 class Detector:
     def __init__(self, method = METHOD_BLS_PEAKS):
+        #constants
+        self.spline_length = 1000
+        self.VOP = 0.71 #from .lws file
+        self.units_per_sample = 3.63716*92/self.spline_length #from .lws file... accuracy not verified (*92/1000 is to convert for spline length)
+        self.bls_deviation_thresh = 0.10 #(B)ase(L)ine (S)ubtraction deviation threshold: percent variations smaller than this in the baseline-subtracted waveform will be ignored
+        #init of internal variables
         self.baseline = None
         self.method = method
-        #TODO need some characterization of cables... conversion of sample index to feet based on frequency and VOP
-        self.VOP = 0.71 #from .lws file
-        self.units_per_sample = 3.63716 #from .lws file... accuracy not verified
-        self.bls_deviation_thresh = 0.10 #(B)ase(L)ine (S)ubtraction deviation threshold: percent variations smaller than this in the baseline-subtracted waveform will be ignored
         self.terminal_dev_index = 0
         self.terminal_peak_index = 0
         self.terminal_pulse_width = 0
-        
+        self.zero_index = 0
+    
     #takes as input a waveform from a healthy system
     def set_baseline(self, bl):
-        self.baseline = np.array(bl)
+        self.baseline = spline_interpolate(range(len(bl)), bl, self.spline_length)
+        self.zero_index = np.argmax(self.baseline)
     
     #takes as input a waveform with a disconnect just before any solar panels (the "panel terminal", commonly called A+)
     def set_terminal(self, wf):
         #locate first non-sidelobe peak in raw waveform, find P(A) and D(A) as in Mashad's method (BLS_DEVIATION_CORRECTION)
         print("setting terminal locations...")
         if (self.baseline is None): return
-        zero_index = np.argmax(self.baseline)
         wf = np.array(wf)
         bls = wf-self.baseline
         abs_bls = np.abs(bls)
@@ -79,8 +89,7 @@ class Detector:
         if self.method == METHOD_BLS_PEAKS:
             #perform baseline subtraction and return a fault
             if (self.baseline is None): return fault
-            zero_index = np.argmax(self.baseline)
-            wf = np.array(waveform)
+            wf = spline_interpolate(range(len(waveform)), waveform, self.spline_length)
             bls = wf-self.baseline
             abs_bls = np.abs(bls)
             for dev_index in range(len(self.baseline)):
@@ -94,13 +103,12 @@ class Detector:
             else:
                 fault_type = FAULT_SHORT
             
-            fault = (fault_type, self.units_per_sample*(fault_index-zero_index)) #TODO adjust for noninteger zero index using spline interpolation
+            fault = (fault_type, self.units_per_sample*(fault_index-self.zero_index))
         
         #Mashad's method: uses width of pulse from disconnect at panel terminal to correct other disconnect locations
         if self.method == METHOD_BLS_DEVIATION_CORRECTION:
             if (self.baseline is None): return fault
-            zero_index = np.argmax(self.baseline)
-            wf = np.array(waveform)
+            wf = spline_interpolate(range(len(waveform)), waveform, self.spline_length)
             bls = wf-self.baseline
             abs_bls = np.abs(bls)
             for dev_index in range(len(self.baseline)):
@@ -115,6 +123,6 @@ class Detector:
             else:
                 fault_type = FAULT_SHORT
             
-            fault = (fault_type, self.units_per_sample*(dev_index + self.terminal_pulse_width -zero_index))
+            fault = (fault_type, self.units_per_sample*(dev_index + self.terminal_pulse_width -self.zero_index))
         
         return fault
