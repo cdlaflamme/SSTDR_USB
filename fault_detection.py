@@ -43,7 +43,6 @@ class Detector:
         self.terminal_peak_index = 0
         self.terminal_pulse_width = 0
         
-        
     #takes as input a waveform from a healthy system
     def set_baseline(self, bl):
         self.baseline = np.array(bl)
@@ -51,22 +50,26 @@ class Detector:
     #takes as input a waveform with a disconnect just before any solar panels (the "panel terminal", commonly called A+)
     def set_terminal(self, wf):
         #locate first non-sidelobe peak in raw waveform, find P(A) and D(A) as in Mashad's method (BLS_DEVIATION_CORRECTION)
+        print("setting terminal locations...")
         if (self.baseline is None): return
         zero_index = np.argmax(self.baseline)
-        wf = np.array(waveform)
+        wf = np.array(wf)
         bls = wf-self.baseline
         abs_bls = np.abs(bls)
+        print("finding deviation index...")
         for dev_index in range(len(self.baseline)):
             if (abs_bls[dev_index] >= self.bls_deviation_thresh*max(self.baseline)): break
-        if (dev_index == len(wf)-1): return fault
+        print("dev index: ", dev_index)
+        if (dev_index >= len(wf)-1): return
         #need to locate peak in raw waveform
         locs = scipy.signal.find_peaks(wf)[0]
         locs = list(filter(lambda x: x >= dev_index, locs))
-        
+        print("found peaks", locs)
         #set internal values
         self.terminal_peak_index = locs[0] #index 0 is first peak; only positive peaks located and we're not in absolute value
         self.terminal_dev_index = dev_index
         self.terminal_pulse_width = self.terminal_peak_index - self.terminal_dev_index;
+        print("set terminal locations.")
         
     #takes as input any waveform, returns the location and type of fault detected, if any
     #returns a tuple: (fault type, distance to fault (in feet))
