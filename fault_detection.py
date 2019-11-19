@@ -33,9 +33,11 @@ def get_fault_name(fault_ID):
         return "Unnamed fault"
 
 def spline_interpolate(x, y, N):
+    print("interpolating...")
     tck = scipy.interpolate.splrep(x, y)
-    x_i = linspace(min(x), max(x), N)
+    x_i = np.linspace(min(x), max(x), N)
     spl = scipy.interpolate.splev(x_i, tck)
+    print("interpolated.")
     return (x_i, spl)
 
 class Detector:
@@ -55,9 +57,11 @@ class Detector:
     
     #takes as input a waveform from a healthy system
     def set_baseline(self, bl):
+        print("setting baseline")
         self.baseline = spline_interpolate(range(len(bl)), bl, self.spline_length)
         self.zero_index = np.argmax(self.baseline)
-    
+        print("set baseline.")
+        
     #takes as input a waveform with a disconnect just before any solar panels (the "panel terminal", commonly called A+)
     def set_terminal(self, wf):
         #locate first non-sidelobe peak in raw waveform, find P(A) and D(A) as in Mashad's method (BLS_DEVIATION_CORRECTION)
@@ -109,20 +113,28 @@ class Detector:
         if self.method == METHOD_BLS_DEVIATION_CORRECTION:
             if (self.baseline is None): return fault
             wf = spline_interpolate(range(len(waveform)), waveform, self.spline_length)
+            print('a')
             bls = wf-self.baseline
+            print('b')
             abs_bls = np.abs(bls)
+            print('c')
             for dev_index in range(len(self.baseline)):
                 if (abs_bls[dev_index] >= self.bls_deviation_thresh*max(self.baseline)): break
-            if (dev_index == len(wf)-1): return fault
+            print('d')
+            if (dev_index >= len(wf)-1): return fault
+            print('e')
             #determine type of fault using sign of BLS peak; need to locate BLS peak
             locs = scipy.signal.find_peaks(abs_bls)[0]
+            print('f')
             locs = list(filter(lambda x: x >= dev_index, locs))
+            print('g')
             peak_index = locs[1] #index 0 is a sidelobe
+            print('h')
             if (bls[peak_index] > 0):
                 fault_type = FAULT_OPEN
             else:
                 fault_type = FAULT_SHORT
-            
+            print('i')
             fault = (fault_type, self.units_per_sample*(dev_index + self.terminal_pulse_width -self.zero_index))
-        
+            print('j')
         return fault
