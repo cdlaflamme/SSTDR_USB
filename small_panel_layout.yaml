@@ -1,0 +1,10 @@
+#each entry following '-' is a string of panels connected in series.
+#for several parallel strings, one can use multiple string entries.
+- name: small_panels
+  panels: #list of panel locations along the wire in feet. each number is an offset from the previous position location, or 0 feet if the first.
+    - 196.9167 #194 + 2.9167; leader cables + panel cable
+    - 5.8334 #panel cable x 2
+    - 5.8334
+    - 5.8334
+    - 5.8334
+    - 194 #the last entry is treated as the return point to the SSTDR. no panel is placed here.

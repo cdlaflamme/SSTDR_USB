@@ -6,6 +6,9 @@ import scipy.signal
 import scipy.interpolate
 import numpy as np
 
+#constant: determines length of spline to interpolate signals to
+SPLINE_LENGTH = 1000
+
 #constants representing fault type. returned by "detect_faults()"
 FAULT_NONE = 0
 FAULT_OPEN = 1
@@ -32,20 +35,18 @@ def get_fault_name(fault_ID):
     else:
         return "Unnamed fault"
 
-def spline_interpolate(x, y, N):
-    print("interpolating...")
+def spline_interpolate(y, N = SPLINE_LENGTH):
+    x = range(len(y))
     tck = scipy.interpolate.splrep(x, y)
     x_i = np.linspace(min(x), max(x), N)
     spl = scipy.interpolate.splev(x_i, tck)
-    print("interpolated.")
-    return (x_i, spl)
+    return spl
 
 class Detector:
     def __init__(self, method = METHOD_BLS_PEAKS):
         #constants
-        self.spline_length = 1000
         self.VOP = 0.71 #from .lws file
-        self.units_per_sample = 3.63716*92/self.spline_length #from .lws file... accuracy not verified (*92/1000 is to convert for spline length)
+        self.units_per_sample = 3.63716*92/SPLINE_LENGTH #from .lws file... accuracy not verified (*92/1000 is to convert for spline length)
         self.bls_deviation_thresh = 0.10 #(B)ase(L)ine (S)ubtraction deviation threshold: percent variations smaller than this in the baseline-subtracted waveform will be ignored
         #init of internal variables
         self.baseline = None
@@ -57,17 +58,16 @@ class Detector:
     
     #takes as input a waveform from a healthy system
     def set_baseline(self, bl):
-        print("setting baseline")
-        self.baseline = spline_interpolate(range(len(bl)), bl, self.spline_length)
+        self.baseline = np.array(bl)
         self.zero_index = np.argmax(self.baseline)
-        print("set baseline.")
         
     #takes as input a waveform with a disconnect just before any solar panels (the "panel terminal", commonly called A+)
-    def set_terminal(self, wf):
+    def set_terminal(self, waveform):
         #locate first non-sidelobe peak in raw waveform, find P(A) and D(A) as in Mashad's method (BLS_DEVIATION_CORRECTION)
         print("setting terminal locations...")
         if (self.baseline is None): return
-        wf = np.array(wf)
+        #wf = spline_interpolate(range(len(waveform)), waveform, self.spline_length)
+        wf = np.array(waveform)
         bls = wf-self.baseline
         abs_bls = np.abs(bls)
         print("finding deviation index...")
@@ -93,7 +93,8 @@ class Detector:
         if self.method == METHOD_BLS_PEAKS:
             #perform baseline subtraction and return a fault
             if (self.baseline is None): return fault
-            wf = spline_interpolate(range(len(waveform)), waveform, self.spline_length)
+            #wf = spline_interpolate(range(len(waveform)), waveform, self.spline_length)
+            wf = np.array(waveform)
             bls = wf-self.baseline
             abs_bls = np.abs(bls)
             for dev_index in range(len(self.baseline)):
@@ -112,29 +113,20 @@ class Detector:
         #Mashad's method: uses width of pulse from disconnect at panel terminal to correct other disconnect locations
         if self.method == METHOD_BLS_DEVIATION_CORRECTION:
             if (self.baseline is None): return fault
-            wf = spline_interpolate(range(len(waveform)), waveform, self.spline_length)
-            print('a')
+            #wf = spline_interpolate(range(len(waveform)), waveform, self.spline_length)
+            wf = np.array(waveform)
             bls = wf-self.baseline
-            print('b')
             abs_bls = np.abs(bls)
-            print('c')
             for dev_index in range(len(self.baseline)):
                 if (abs_bls[dev_index] >= self.bls_deviation_thresh*max(self.baseline)): break
-            print('d')
             if (dev_index >= len(wf)-1): return fault
-            print('e')
             #determine type of fault using sign of BLS peak; need to locate BLS peak
             locs = scipy.signal.find_peaks(abs_bls)[0]
-            print('f')
             locs = list(filter(lambda x: x >= dev_index, locs))
-            print('g')
             peak_index = locs[1] #index 0 is a sidelobe
-            print('h')
             if (bls[peak_index] > 0):
                 fault_type = FAULT_OPEN
             else:
                 fault_type = FAULT_SHORT
-            print('i')
-            fault = (fault_type, self.units_per_sample*(dev_index + self.terminal_pulse_width -self.zero_index))
-            print('j')
+            fault = (fault_type, self.units_per_sample*(dev_index + self.terminal_pulse_width-self.zero_index))
         return fault

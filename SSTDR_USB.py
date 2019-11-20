@@ -12,30 +12,36 @@ Created on Wed Oct 23 13:50:16 2019
 
 #TODO
 #add testing mode, where USBPcap is not used, and instead an input file is looped forever
-#need to look at and use mashaad code to perform fault detection
 
 """
 DEPENDENCIES
 - matplotlib (in conda)
 - numpy (in conda)
-- curses (in pip, use "windows-curses" for windows)
+- curses (in pip, use "windows-curses" on windows)
 - pyformulas (in pip)
     - pyaudio (required by pyformulas, in conda)
     - portaudio (required by pyformulas, in conda)
+- pygame (in pip)
+- pyyaml (in conda)
 """
-
+#built in python modules
 import sys
 import os
 import subprocess
-from PcapPacketReceiver import *
 from concurrent.futures import ThreadPoolExecutor
+import traceback
+import threading
+
+#python libraries
+import numpy as np
 import curses
 import matplotlib.pyplot as plt
-import numpy as np
 import pyformulas as pf
 from collections import deque
-import time
 import pygame
+
+#homegrown code
+from PcapPacketReceiver import *
 import fault_detection
 
 def main(cscreen):
@@ -68,7 +74,8 @@ def main(cscreen):
     #start receiving usbpcap output and organizing it into packets
     usb_stream = os.fdopen(usb_fd_r, "rb")
     #set up receiver to process raw USB bytestream
-    receiver = PcapPacketReceiver(usb_stream, loop=True)
+    halt_threads = threading.Event()
+    receiver = PcapPacketReceiver(usb_stream, loop=True, halt_event=halt_threads)
     
     #prepare deque for waveform visualization; only stores 10 most recently received waveforms
     wf_deque = deque(maxlen=4)
@@ -213,141 +220,149 @@ def main(cscreen):
         payloadString = b''
         byteCount = 0
         WAVEFORM_BYTE_COUNT = 199 #every waveform region contains 199 payload bytes
-
-        while(True):
-            #take packet from Q, process in some way
-            """
-            goal is to identify shape of data in intermittent test, and have this
-            code recognize when a sequence of packet blocks represents a
-            correlation waveform. This waveform should be calculated from payload
-            bytes, and either shown for visualization (pyplot?) or fed to matlab
-            for processing (which is the ultimate goal).
-            """
-            #show some packet data so it's clear the scanner is working
-            if receiver.q.empty() == False:
-                pBlock = receiver.q.get()
-                #cscreen.addstr(5,0,"Received packet at timestamp: " + str(pBlock.ts_sec + 0.000001*pBlock.ts_usec)) 
-                #cscreen.refresh()
-                
-                #if received packet may be in a waveform region of the stream:
-                #criteria: input (to host) from endpoint 3 and function == URB_FUNCTION_BULK_OR_INTERRUPT_TRANSFER
-                if (pBlock.packet.endpoint == 0x83 and pBlock.packet.function == 0x09):
-                    #if block has a payload:
-                    p = pBlock.packet.payload
-                    l = len(p)
-                    if (l > 0):
-                        payloadString = payloadString + p
-                        byteCount = byteCount + l
-                        if (byteCount >= WAVEFORM_BYTE_COUNT):
-                            #perform processing on raw waveform
-                            wf = process_waveform_region(payloadString)
-                            fault = detector.detect_faults(wf)
-                            wf_deque.append(wf)
-                            #show that we've received a waveform
-                            cscreen.addstr(7,0,"Received waveform at timestamp: " + str(pBlock.ts_sec + 0.000001*pBlock.ts_usec))
-                            cscreen.refresh()                                                     
-                            #prepare to receive next waveform region                            
-                            payloadString = b''
-                            byteCount = 0
-                elif (byteCount > 0):
-                    payloadString = b''
-                    byteCount = 0
-            elif len(wf_deque) > 0:
-                #q was empty, we have some extra time to visualize things
-                wf = np.array(wf_deque.popleft())
-                
-                ###################################################################################################################################
-                #       PYFORMULAS: visualize waveform
-                ###################################################################################################################################
-                #code from https://stackoverflow.com/questions/40126176/fast-live-plotting-in-matplotlib-pyplot
-                plt.clf()
-                if (detector.baseline is None): 
-                    plt.plot(wf)
-                else:
-                    plt.plot(wf-detector.baseline)
-                fig.canvas.draw()
-                image = np.frombuffer(fig.canvas.tostring_rgb(), dtype=np.uint8)
-                image = image.reshape(fig.canvas.get_width_height()[::-1] + (3,))
-                plot_window.update(image)
-                
-                ###################################################################################################################################
-                #       PYGAME: fault visualization
-                ###################################################################################################################################
-                for event in pygame.event.get():
-                    if event.type == pygame.QUIT or (event.type == pygame.KEYDOWN and event.key == pygame.K_ESCAPE):
-                        pygame.display.quit()
-                        pygame.quit()
-                    if event.type == pygame.KEYDOWN:
-                        if event.key == pygame.K_b:
-                            detector.set_baseline(wf)#set baseline
-                        elif event.key == pygame.K_t:
-                            detector.set_terminal(wf)#set terminal waveform
-                        elif event.key == pygame.K_LEFT:
-                            detector.bls_deviation_thresh = detector.bls_deviation_thresh - 0.01 #adjust deviation threshold for peak location
-                        elif event.key == pygame.K_RIGHT:
-                            detector.bls_deviation_thresh = detector.bls_deviation_thresh + 0.01
-                            
-                #per-frame logic here
-                is_fault = (fault[0] != fault_detection.FAULT_NONE)
-                fault_d_f = fault[1]
-                fault_d_p = fault_d_f * FEET_TO_PIXELS
-                
-                if (is_fault):
-                    d = 0
-                    px = WIRE_COORDS[0][0]
-                    py = WIRE_COORDS[0][1]
-                    hazard_point = WIRE_COORDS[-1]
-                    for x,y in WIRE_COORDS[1:]:
-                        step = ((x-px)**2 + (y-py)**2)**0.5
-                        if (d+step >= fault_d_p):
-                            hsr = (fault_d_p - d)/step #hazard step ratio
-                            hazard_point = (px + (x-px)*hsr, py + (y-py)*hsr)
-                            break
-                        else:
-                            px = x
-                            py = y
-                            d = d + step
-                    hazard_rect.center = hazard_point
-                    
-                    fault_name = fault_detection.get_fault_name(fault[0])
-                    fault_text_surf = TERMINAL_FONT.render(fault_name + " located at " + str(fault_d_f) + " feet", True, TEXT_COLOR)
-                else:
-                    fault_text_surf = TERMINAL_FONT.render("System OK", True, TEXT_COLOR)
-                fault_text_rect = fault_text_surf.get_rect()
-                fault_text_rect.center = term_rect.center
-                
-                param_text_surf = STATUS_FONT.render("BLS deviation threshold:" + str(detector.bls_deviation_thresh), True, COLOR_WHITE)
-                param_text_rect = param_text_surf.get_rect()
-                param_text_rect.bottomright = (SCREEN_X-3, VISUAL_Y - BORDER_WIDTH - int(0.5*BORDER_PADDING) - 3)
-                
-                #drawing
-                pscreen.blit(bg_surf, bg_rect)
-                pscreen.blit(term_surf, term_rect)
-                pscreen.blit(fault_text_surf, fault_text_rect)
-                pscreen.blit(param_text_surf, param_text_rect)
-                pscreen.blit(array_surf, array_rect)
-                if (is_fault):
-                    pscreen.blit(hazard_surf, hazard_rect)
-                pygame.display.flip()
-            
-            #CURSES: check for quit
-            c = cscreen.getch()
-            if (c == ord('q')):
-                cscreen.addstr(0,0,"Quitting: Terminating scanner...")
-                cscreen.refresh()                
-                usbpcap_process.terminate()                
-                cscreen.addstr(0,0, "Stopped scanner. Waiting for threads...")
-                cscreen.refresh()
-                receiver.halt()
-                #plt_thread.cancel()
-                while(rec_thread.running()):
-                    pass
-                usb_stream.close()
-                #executor.shutdown() #performed implicitly by "with" statement
-                cscreen.addstr(0,0, "Finished. Exiting...")
-                break
-
         
+        try:
+            while(True):
+                #take packet from Q, process in some way
+                """
+                goal is to identify shape of data in intermittent test, and have this
+                code recognize when a sequence of packet blocks represents a
+                correlation waveform. This waveform should be calculated from payload
+                bytes, and either shown for visualization (pyplot?) or fed to matlab
+                for processing (which is the ultimate goal).
+                """
+                #show some packet data so it's clear the scanner is working
+                if receiver.q.empty() == False:
+                    pBlock = receiver.q.get()
+                    #cscreen.addstr(5,0,"Received packet at timestamp: " + str(pBlock.ts_sec + 0.000001*pBlock.ts_usec)) 
+                    #cscreen.refresh()
+                    
+                    #if received packet may be in a waveform region of the stream:
+                    #criteria: input (to host) from endpoint 3 and function == URB_FUNCTION_BULK_OR_INTERRUPT_TRANSFER
+                    if (pBlock.packet.endpoint == 0x83 and pBlock.packet.function == 0x09):
+                        #if block has a payload:
+                        p = pBlock.packet.payload
+                        l = len(p)
+                        if (l > 0):
+                            payloadString = payloadString + p
+                            byteCount = byteCount + l
+                            if (byteCount >= WAVEFORM_BYTE_COUNT):
+                                #perform processing on raw waveform
+                                wf = process_waveform_region(payloadString)
+                                wf_deque.append(wf)
+                                #show that we've received a waveform
+                                cscreen.addstr(7,0,"Received waveform at timestamp: " + str(pBlock.ts_sec + 0.000001*pBlock.ts_usec))
+                                cscreen.refresh()                                                     
+                                #prepare to receive next waveform region                            
+                                payloadString = b''
+                                byteCount = 0
+                    elif (byteCount > 0):
+                        payloadString = b''
+                        byteCount = 0
+                elif len(wf_deque) > 0:
+                    #q was empty, we have some extra time to visualize things
+                    wf = np.array(wf_deque.popleft())
+                    wf_i = fault_detection.spline_interpolate(wf)
+                    
+                    ###################################################################################################################################
+                    #       PYFORMULAS: visualize waveform
+                    ###################################################################################################################################
+                    #code from https://stackoverflow.com/questions/40126176/fast-live-plotting-in-matplotlib-pyplot
+                    plt.clf()
+                    if (detector.baseline is None): 
+                        plt.plot(wf_i)
+                    else:
+                        plt.plot(wf_i-detector.baseline)
+                    fig.canvas.draw()
+                    image = np.frombuffer(fig.canvas.tostring_rgb(), dtype=np.uint8)
+                    image = image.reshape(fig.canvas.get_width_height()[::-1] + (3,))
+                    plot_window.update(image)
+                    
+                    ###################################################################################################################################
+                    #       PYGAME: fault visualization
+                    ###################################################################################################################################
+                    fault = detector.detect_faults(wf_i)
+                    
+                    for event in pygame.event.get():
+                        if event.type == pygame.QUIT or (event.type == pygame.KEYDOWN and event.key == pygame.K_ESCAPE):
+                            pygame.display.quit()
+                            pygame.quit()
+                        if event.type == pygame.KEYDOWN:
+                            if event.key == pygame.K_b:
+                                detector.set_baseline(wf_i)#set baseline
+                            elif event.key == pygame.K_t:
+                                detector.set_terminal(wf_i)#set terminal waveform
+                            elif event.key == pygame.K_LEFT:
+                                detector.bls_deviation_thresh = detector.bls_deviation_thresh - 0.01 #adjust deviation threshold for peak location
+                            elif event.key == pygame.K_RIGHT:
+                                detector.bls_deviation_thresh = detector.bls_deviation_thresh + 0.01
+                                
+                    #per-frame logic here
+                    is_fault = (fault[0] != fault_detection.FAULT_NONE)
+                    fault_d_f = fault[1]
+                    fault_d_p = fault_d_f * FEET_TO_PIXELS
+                    
+                    if (is_fault):
+                        d = 0
+                        px = WIRE_COORDS[0][0]
+                        py = WIRE_COORDS[0][1]
+                        hazard_point = WIRE_COORDS[-1]
+                        for x,y in WIRE_COORDS[1:]:
+                            step = ((x-px)**2 + (y-py)**2)**0.5
+                            if (d+step >= fault_d_p):
+                                hsr = (fault_d_p - d)/step #hazard step ratio
+                                hazard_point = (px + (x-px)*hsr, py + (y-py)*hsr)
+                                break
+                            else:
+                                px = x
+                                py = y
+                                d = d + step
+                        hazard_rect.center = hazard_point
+                        
+                        fault_name = fault_detection.get_fault_name(fault[0])
+                        fault_text_surf = TERMINAL_FONT.render(fault_name + " located at " + str(fault_d_f) + " feet", True, TEXT_COLOR)
+                    else:
+                        fault_text_surf = TERMINAL_FONT.render("System OK", True, TEXT_COLOR)
+                    fault_text_rect = fault_text_surf.get_rect()
+                    fault_text_rect.center = term_rect.center
+                    
+                    param_text_surf = STATUS_FONT.render("BLS deviation threshold:" + str(detector.bls_deviation_thresh), True, COLOR_WHITE)
+                    param_text_rect = param_text_surf.get_rect()
+                    param_text_rect.bottomright = (SCREEN_X-3, VISUAL_Y - BORDER_WIDTH - int(0.5*BORDER_PADDING) - 3)
+                    
+                    #drawing
+                    pscreen.blit(bg_surf, bg_rect)
+                    pscreen.blit(term_surf, term_rect)
+                    pscreen.blit(fault_text_surf, fault_text_rect)
+                    pscreen.blit(param_text_surf, param_text_rect)
+                    pscreen.blit(array_surf, array_rect)
+                    if (is_fault):
+                        pscreen.blit(hazard_surf, hazard_rect)
+                    pygame.display.flip()
+                
+                ###################################################################################################################################
+                #       CURSES: Check for quit
+                ###################################################################################################################################
+                c = cscreen.getch()
+                if (c == ord('q')):
+                    cscreen.addstr(0,0,"Quitting: Terminating scanner...")
+                    cscreen.refresh()                
+                    usbpcap_process.terminate()                
+                    cscreen.addstr(0,0, "Stopped scanner. Waiting for threads...")
+                    cscreen.refresh()
+                    receiver.halt()
+                    while(rec_thread.running()):
+                        pass
+                    usb_stream.close()
+                    #executor.shutdown() #performed implicitly by "with" statement
+                    cscreen.addstr(0,0, "Finished. Exiting...")
+                    break
+        except:
+            print("Exception Occurred:")
+            print('='*40)
+            traceback.print_exc(file=sys.stdout)
+            print('='*40)
+            
     print("All done. :)")
 
 def process_waveform_region(pString):
@@ -370,28 +385,6 @@ def convert_waveform_region(pString):
             value = value - 2**16
         concat[i] = value
     return concat
-
-#deprecated. plotting moved to main thread.
-def plot_waveforms(wf_deque):
-    """intended to be run as a separate thread. Takes waveforms from a deque and plots them."""
-    fig = plt.figure()
-    plot_window = pf.screen(title='SSTDR Correlation Waveform')
-
-    #TODO: make this dependent on a halt event
-    while(True):
-        #wait for deque entry
-        if(len(wf_deque) > 0):
-            wf = wf_deque.popleft()
-            #visualize waveform
-            #code from https://stackoverflow.com/questions/40126176/fast-live-plotting-in-matplotlib-pyplot
-            plt.plot(wf)
-            fig.canvas.draw()
-            image = np.frombuffer(fig.canvas.tostring_rgb(), dtype=np.uint8)
-            image = image.reshape(fig.canvas.get_width_height()[::-1] + (3,))
-            plot_window.update(image)  
-        #polling is bad, can't block with a deque, just sleep for a bit
-        time.sleep(0.25)
-
 
 if (__name__ == '__main__'):
     curses.wrapper(main)
