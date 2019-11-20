@@ -42,6 +42,7 @@ import matplotlib.pyplot as plt
 import pyformulas as pf
 from collections import deque
 import pygame
+import yaml
 
 #homegrown code
 from PcapPacketReceiver import *
@@ -176,22 +177,22 @@ def main(cscreen):
 
     #load panel layout
     panel_layout, panel_ds = load_panel_layout(yaml_path)
-    panel_cols, panel_rows = 0
+    panel_cols = panel_rows = 0
     try:
         N = len(panel_ds)
-        H = int((N-1)/2)
-        if (layout['layout'] == 'loop'):
+        H = int(N/2)-1
+        if (panel_layout['layout'] == 'loop'):
             panel_rows = 2
-            panel_cols = H+N%2
+            panel_cols = int(N/2+0.5)
             r = 0
             PANEL_COORDS = [(c*(PANEL_PADDING[0] + panel_rect.w), r*(PANEL_PADDING[1] + panel_rect.h)) for c in range(0,H+1)]
             if (len(panel_ds)%2):
                 r = 0.5
-                PANEL_COORDS.insert(H+1,(H+1)*(PANEL_PADDING[0] + panel_rect.w), r*(PANEL_PADDING[1] + panel_rect.h)))
+                PANEL_COORDS.append(((H+1)*(PANEL_PADDING[0] + panel_rect.w), r*(PANEL_PADDING[1] + panel_rect.h)))
             r = 1
             PANEL_COORDS = PANEL_COORDS + [(c*(PANEL_PADDING[0] + panel_rect.w), r*(PANEL_PADDING[1] + panel_rect.h)) for c in range(H,-1,-1)]
         
-        elif(layout['layout'] == 'home-run'):
+        elif(panel_layout['layout'] == 'home-run'):
             panel_rows = 1
             panel_cols = N
             r = 0
@@ -327,25 +328,36 @@ def main(cscreen):
                     #per-frame logic here
                     is_fault = (fault[0] != fault_detection.FAULT_NONE)
                     fault_d_f = fault[1]
-                    fault_d_p = fault_d_f * FEET_TO_PIXELS
+                    #fault_d_p = fault_d_f * FEET_TO_PIXELS
                     
                     if (is_fault):
-                        #TODO update this based on panel_ds so the fault is located properly
+                        #TODO update this based on panel_ds so the fault is located properly on the screen
                         d = 0
                         px = WIRE_COORDS[0][0]
                         py = WIRE_COORDS[0][1]
                         hazard_point = WIRE_COORDS[-1]
-                        for x,y in WIRE_COORDS[1:]:
-                            step = ((x-px)**2 + (y-py)**2)**0.5
-                            if (d+step >= fault_d_p):
-                                hsr = (fault_d_p - d)/step #hazard step ratio
-                                hazard_point = (px + (x-px)*hsr, py + (y-py)*hsr)
-                                break
-                            else:
-                                px = x
-                                py = y
-                                d = d + step
-                        hazard_rect.center = hazard_point
+                        
+                        #new code here
+                        #determine which panel the fault is AFTER
+                        for i in range(len(panel_ds)):
+                            if (panel_ds[i] > fault_d_f):
+                                break                        
+                        #get the distance from the SSTDR positive lead to the pre-fault point ('point' being a point in WIRE_COORDS)
+                        if i == 0:
+                            pre_d = 0
+                        else:
+                            pre_d = panel_ds[i-1]
+                        #get the distance from the SSTDR positive lead to the post-fault point
+                        if i == len(panel_ds):
+                            post_d = panel_ds[-1] + panel_layout['home_cable_length'] #point in feet at final SSTDR terminal
+                        else:
+                            post_d = panel_ds[i]          
+                        #get PIXEL locations of pre-fault and post-fault points, then calculate PIXEL location of fault point
+                        pre_x, pre_y = WIRE_COORDS[i] #WIRE COORDS has an extra point at i=0 (where x=0), so this chooses the point of the panel/terminal BEFORE the fault
+                        post_x, post_y = WIRE_COORDS[i+1] #certainly safe; WIRE_COORDS has two more points than PANEL_COORDS. chooses the point AFTER the fault
+                        hsr = (fault_d_f - pre_d)/(post_d - pre_d) #hazard step ratio: ratio at which the fault lies in between post point and pre point, s.t. fault_d = pre_d + hsr*(post_d - pre_d)
+                        step = ((post_x-pre_x)**2 + (post_y-pre_y)**2)**0.5 #distance IN PIXELS between post and pre points
+                        hazard_rect.center = (pre_x + hsr*(post_x-pre_x), pre_y + hsr*(post_y-pre_y))
                         
                         fault_name = fault_detection.get_fault_name(fault[0])
                         fault_text_surf = TERMINAL_FONT.render(fault_name + " located at " + str(fault_d_f) + " feet", True, TEXT_COLOR)
@@ -419,16 +431,16 @@ def load_panel_layout(yfile_path):
     try:
         with open(yfile_path, "r") as f:
             data = yaml.safe_load(f)
-        
-        N = data['panel_count']
+        panel_series = data[0]
+        N = panel_series['panel_count'] #TODO: only loads 0th series. for multi-series systems, this should be changed
         panel_ds = [0]*N
-        panel_ds[0] = data['header_cable_length'] + data['panel_cable_length']
+        panel_ds[0] = panel_series['header_cable_length'] + panel_series['panel_cable_length']
         for i in range(1,N):
-            panel_ds[i] = panel_ds[i-1] + 2*data['panel_cable_length'])
+            panel_ds[i] = panel_ds[i-1] + 2*panel_series['panel_cable_length']
         #returns tuple:
-        #   data: layout dictionary directly loaded from .yaml
+        #   panel_series: layout dictionary directly loaded from .yaml
         #   panel_ds: list of panel distances from SSTDR, in feet
-        return (data, panel_ds)
+        return (panel_series, panel_ds)
         
     except:
         print("Exception Occurred:")
