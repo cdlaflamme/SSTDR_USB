@@ -1,10 +1,33 @@
 #each entry following '-' is a string of panels connected in series.
 #for several parallel strings, one can use multiple string entries.
-- name: small_panels
-  panels: #list of panel locations along the wire in feet. each number is an offset from the previous position location, or 0 feet if the first.
+- name: small_panels_steps
+  layout: loop #options are 'loop' and 'home-run': panels exist on the home-run cable in the loop configuration
+  panel_steps: #list of panel locations along the wire in feet. each number is an offset from the previous position location, or 0 feet if the first.
     - 196.9167 #194 + 2.9167; leader cables + panel cable
     - 5.8334 #panel cable x 2
     - 5.8334
     - 5.8334
     - 5.8334
     - 194 #the last entry is treated as the return point to the SSTDR. no panel is placed here.
+
+- name: small_panels_explicit
+  layout: loop #this value is technically not needed, but it's hard for software to figure it out otherwise
+  panel_coords: #list of panel locations along the wire in feet. each number is an offset from the previous position location, or 0 feet if the first.
+    - 196.9167
+    - 202.7501
+    - 208.5835
+    - 214.4169
+    - 220.2503
+    - 414.2503 #last entry is return point
+
+- name: small_panels_implicit
+  layout: loop
+  header_cable_length: 194 #in feet
+  panel_cable_length: 2.9167 #in feet
+  panel_count: 5
+
+- name: large_panels_implicit
+  layout: loop
+  header_cable_length: 194
+  panel_cable_length: 5.1 #just a guess
+  panel_count: 21

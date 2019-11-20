@@ -24,6 +24,9 @@ DEPENDENCIES
 - pygame (in pip)
 - pyyaml (in conda)
 """
+######################################################
+##                    IMPORTS                       ##
+######################################################
 #built in python modules
 import sys
 import os
@@ -43,6 +46,31 @@ import pygame
 #homegrown code
 from PcapPacketReceiver import *
 import fault_detection
+
+######################################################
+##                   CONSTANTS                      ##
+######################################################
+SCREEN_SIZE = SCREEN_X, SCREEN_Y = 900, 700
+TERMINAL_Y = 200
+VISUAL_Y = SCREEN_Y - TERMINAL_Y
+BORDER_WIDTH = 3
+BORDER_PADDING = 2
+
+COLOR_WHITE     = (225, 225, 225)
+COLOR_GREY      = (128, 128, 128)
+COLOR_ORANGE    = (255, 140,   0)
+COLOR_BLUE      = (  0,   0, 200)
+COLOR_BLACK     = ( 10,  10,  10)
+
+BG_COLOR = COLOR_GREY
+TERMINAL_COLOR = COLOR_WHITE
+WIRE_COLOR = COLOR_BLUE
+TEXT_COLOR = COLOR_BLACK
+
+PANEL_SCALE = 1/6
+PANEL_PADDING = (100, 25)
+WIRE_WIDTH = 2
+
 
 def main(cscreen):
     ######################################################
@@ -77,37 +105,18 @@ def main(cscreen):
     halt_threads = threading.Event()
     receiver = PcapPacketReceiver(usb_stream, loop=True, halt_event=halt_threads)
     
-    #prepare deque for waveform visualization; only stores 10 most recently received waveforms
-    wf_deque = deque(maxlen=4)
+    #prepare deque for waveform visualization; only stores a few of the most recently received waveforms. appended entries cycle out old ones
+    #larger deque -> more maximum latency between visualization and actual system state
+    #smaller deque -> not sure why this would be a problem (something about losing information if packets aren't received constantly)
+    wf_deque = deque(maxlen=1)
     
+    #prepare to visualize waveforms
     fig = plt.figure()
     plot_window = pf.screen(title='SSTDR Correlation Waveform')
     
     ######################################################
-    ##                     PYGAME                       ##
+    ##                  PYGAME SETUP                    ##
     ######################################################
-
-    #constants
-    SCREEN_SIZE = SCREEN_X, SCREEN_Y = 900, 700
-    TERMINAL_Y = 200
-    VISUAL_Y = SCREEN_Y - TERMINAL_Y
-    BORDER_WIDTH = 3
-    BORDER_PADDING = 2
-
-    COLOR_WHITE     = (225, 225, 225)
-    COLOR_GREY      = (128, 128, 128)
-    COLOR_ORANGE    = (255, 140,   0)
-    COLOR_BLUE      = (  0,   0, 200)
-    COLOR_BLACK     = ( 10,  10,  10)
-
-    BG_COLOR = COLOR_GREY
-    TERMINAL_COLOR = COLOR_WHITE
-    WIRE_COLOR = COLOR_BLUE
-    TEXT_COLOR = COLOR_BLACK
-
-    PANEL_SCALE = 1/6
-    PANEL_PADDING = (100, 25)
-    WIRE_WIDTH = 2
 
     #initializing pygame
     pygame.init()
@@ -200,7 +209,7 @@ def main(cscreen):
     term_rect.bottom = SCREEN_Y
 
     ######################################################
-    ##                 FAULT DETECTION                  ##
+    ##              FAULT DETECTION SETUP               ##
     ######################################################
 
     detector = fault_detection.Detector(fault_detection.METHOD_BLS_DEVIATION_CORRECTION)
@@ -385,6 +394,10 @@ def convert_waveform_region(pString):
             value = value - 2**16
         concat[i] = value
     return concat
+
+def load_panel_layout(yfile):
+    #TODO load panel layout file, determine panel locations along wire,
+    #return tuple: (panel distance list from SSTDR in feet, panel coordinate list on screen in pixels)
 
 if (__name__ == '__main__'):
     curses.wrapper(main)
