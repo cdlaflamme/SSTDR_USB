@@ -78,9 +78,14 @@ def main(cscreen):
     ######################################################
     
     #read arguments, prepare to launch usbpcap
-    if (len(sys.argv) != 3):
-        print("Error: Please supply two arguments: filter and device address.")
-        return    
+    if ([3,4].count(len(sys.argv)) == 0):
+        print("Usage: python SSTDR_USB.py <filter> <device address> [layout yaml path]")
+        return
+    
+    if (len(sys.argv) == 4):
+        yaml_path = sys.argv[4]        
+    else:
+        yaml_path = 'default.yaml'
     
     arg_filter = sys.argv[1]
     arg_address = sys.argv[2]
@@ -163,31 +168,44 @@ def main(cscreen):
     text_rect.move_ip(3,3)
     bg_surf.blit(text_surf, text_rect)
 
-    text_surf = STATUS_FONT.render("Selected Array Layout: 'test_panel_layout'", True, COLOR_WHITE)
+    text_surf = STATUS_FONT.render("Selected Array Layout: " + yaml_path, True, COLOR_WHITE)
     text_rect = text_surf.get_rect()
     text_rect.x = 3
     text_rect.bottom = VISUAL_Y - BORDER_WIDTH - int(0.5*BORDER_PADDING) - 3
     bg_surf.blit(text_surf, text_rect)
 
-    ARRAY_SIZE = (3*(panel_rect.w + PANEL_PADDING[0]), 2*(panel_rect.h + PANEL_PADDING[1]))
+    #load panel layout
+    panel_layout, panel_ds = load_panel_layout(yaml_path)
+    panel_cols, panel_rows = 0
+    try:
+        N = len(panel_ds)
+        H = int((N-1)/2)
+        if (layout['layout'] == 'loop'):
+            panel_rows = 2
+            panel_cols = H+N%2
+            r = 0
+            PANEL_COORDS = [(c*(PANEL_PADDING[0] + panel_rect.w), r*(PANEL_PADDING[1] + panel_rect.h)) for c in range(0,H+1)]
+            if (len(panel_ds)%2):
+                r = 0.5
+                PANEL_COORDS.insert(H+1,(H+1)*(PANEL_PADDING[0] + panel_rect.w), r*(PANEL_PADDING[1] + panel_rect.h)))
+            r = 1
+            PANEL_COORDS = PANEL_COORDS + [(c*(PANEL_PADDING[0] + panel_rect.w), r*(PANEL_PADDING[1] + panel_rect.h)) for c in range(H,-1,-1)]
+        
+        elif(layout['layout'] == 'home-run'):
+            panel_rows = 1
+            panel_cols = N
+            r = 0
+            PANEL_COORDS = [(c*(PANEL_PADDING[0] + panel_rect.w), r*(PANEL_PADDING[1] + panel_rect.h)) for c in range(0,N)]
+        else:
+            raise Exception("Error: unknown layout field in layout yaml file.")
+    except:
+        print("Error: invalid layout yaml file.")
+        return
+    
+    ARRAY_SIZE = (panel_cols*(panel_rect.w + PANEL_PADDING[0]), panel_rows*(panel_rect.h + PANEL_PADDING[1]))
     array_surf = pygame.Surface(ARRAY_SIZE, pygame.SRCALPHA)
     array_surf.convert()
-    r = 0
-    PANEL_COORDS = [(c*(PANEL_PADDING[0] + panel_rect.w), r*(PANEL_PADDING[1] + panel_rect.h)) for c in range(0,2)]
-    PANEL_COORDS.insert(2,(2*(PANEL_PADDING[0] + panel_rect.w), 0.5*(PANEL_PADDING[1] + panel_rect.h)))
-    r = 1
-    PANEL_COORDS = PANEL_COORDS + [(c*(PANEL_PADDING[0] + panel_rect.w), r*(PANEL_PADDING[1] + panel_rect.h)) for c in range(1,-1,-1)]
-
-    """
-    for r in range(2):
-        for c in range(2):
-            array_surf.blit(panel_surf, panel_rect)
-            panel_rect.move_ip(panel_rect.w + PANEL_PADDING[0],0)
-        panel_rect.x = 0
-        panel_rect.move_ip(0, panel_rect.h + PANEL_PADDING[1])
-    panel_rect.move_ip(2*(panel_rect.w + PANEL_PADDING[0]), int(-1.5*(panel_rect.h + PANEL_PADDING[1])))
-    array_surf.blit(panel_surf, panel_rect)
-    """
+    
     for p in PANEL_COORDS:
         panel_rect.topleft = p
         array_surf.blit(panel_surf, panel_rect)
@@ -312,6 +330,7 @@ def main(cscreen):
                     fault_d_p = fault_d_f * FEET_TO_PIXELS
                     
                     if (is_fault):
+                        #TODO update this based on panel_ds so the fault is located properly
                         d = 0
                         px = WIRE_COORDS[0][0]
                         py = WIRE_COORDS[0][1]
@@ -395,9 +414,28 @@ def convert_waveform_region(pString):
         concat[i] = value
     return concat
 
-def load_panel_layout(yfile):
-    #TODO load panel layout file, determine panel locations along wire,
-    #return tuple: (panel distance list from SSTDR in feet, panel coordinate list on screen in pixels)
+def load_panel_layout(yfile_path):
+    #load panel layout file, determine panel locations along wire
+    try:
+        with open(yfile_path, "r") as f:
+            data = yaml.safe_load(f)
+        
+        N = data['panel_count']
+        panel_ds = [0]*N
+        panel_ds[0] = data['header_cable_length'] + data['panel_cable_length']
+        for i in range(1,N):
+            panel_ds[i] = panel_ds[i-1] + 2*data['panel_cable_length'])
+        #returns tuple:
+        #   data: layout dictionary directly loaded from .yaml
+        #   panel_ds: list of panel distances from SSTDR, in feet
+        return (data, panel_ds)
+        
+    except:
+        print("Exception Occurred:")
+        print('='*40)
+        traceback.print_exc(file=sys.stdout)
+        print('='*40)
+        return None
 
 if (__name__ == '__main__'):
     curses.wrapper(main)

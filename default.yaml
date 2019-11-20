@@ -1,0 +1,5 @@
+- name: small_panels_implicit
+  layout: loop
+  header_cable_length: 194 #in feet
+  panel_cable_length: 2.9167 #in feet
+  panel_count: 5

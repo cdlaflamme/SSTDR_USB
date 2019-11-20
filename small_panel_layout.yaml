@@ -8,7 +8,7 @@
     - 5.8334
     - 5.8334
     - 5.8334
-    - 194 #the last entry is treated as the return point to the SSTDR. no panel is placed here.
+#    - 194 #the last entry is treated as the return point to the SSTDR. no panel is placed here. needed if layout is omitted; used to infer layout
 
 - name: small_panels_explicit
   layout: loop #this value is technically not needed, but it's hard for software to figure it out otherwise
@@ -18,7 +18,7 @@
     - 208.5835
     - 214.4169
     - 220.2503
-    - 414.2503 #last entry is return point
+#    - 414.2503 #last entry is return point. needed if layout is omitted; used to infer layout
 
 - name: small_panels_implicit
   layout: loop
