@@ -233,6 +233,7 @@ def main(cscreen):
 
     detector = fault_detection.Detector(fault_detection.METHOD_BLS_DEVIATION_CORRECTION)
     fault = (fault_detection.FAULT_NONE, 0)
+    raw_baseline = None
     #TODO base this off of array layout file and distances provided within
     FEET_TO_PIXELS = 2.1
     
@@ -290,6 +291,8 @@ def main(cscreen):
                 elif len(wf_deque) > 0:
                     #q was empty, we have some extra time to visualize things
                     wf = np.array(wf_deque.popleft())
+                    if not (raw_baseline is None):
+                        wf = fault_detection.remove_spikes(wf, raw_baseline)
                     wf_i = fault_detection.spline_interpolate(wf)
                     
                     ###################################################################################################################################
@@ -318,6 +321,7 @@ def main(cscreen):
                         if event.type == pygame.KEYDOWN:
                             if event.key == pygame.K_b:
                                 detector.set_baseline(wf_i)#set baseline
+                                raw_baseline = wf #for spike removal, I wish I could integrate this into the detector
                             elif event.key == pygame.K_t:
                                 detector.set_terminal(wf_i)#set terminal waveform
                             elif event.key == pygame.K_LEFT:

@@ -42,6 +42,29 @@ def spline_interpolate(y, N = SPLINE_LENGTH):
     spl = scipy.interpolate.splev(x_i, tck)
     return spl
 
+def remove_spikes(wf, bl):
+    #there are annoying small-amplitude (~250) spikes in the data received via USB.
+    #these small spikes are significant enough to mess up Mashad's method, as they are
+    #generally >1% the max value in a waveform (~20000).
+    #these spikes are not present in values saved by livewire software, so I'm assuming
+    #livewire software removes them as well, and that I'm not introducing (net) errors in the data.
+    spike_thresh = 200
+    N = len(wf)
+    bls = np.array(wf)-np.array(bl) #baseline subtraction
+    bls_padded = np.concatenate([[0, 0], bls, [0]]) #pad bls so we can reach negative indices
+    y = wf
+    #for every sample in waveform
+    for i in range(1,N):
+        j = i+2 #index padded bls with j so bl[i] == bl_padded[j]
+        #determine if this sample is part of a 2-sample spike: two adjacent samples with huge deviation from the baseline in opposite directions
+        b = bls_padded[j]
+        a = bls_padded[j-1]
+        if (abs(a) > spike_thresh and abs(b) > spike_thresh and a*b < 0):
+            #set both samples in spike to be near their neighbors in the bls domain, using linear interpolation
+            y[i-1] = bl[i-1] + 2/3*bls_padded[j-2] + 1/3*bls_padded[j+1]
+            y[i]   = bl[i]   + 1/3*bls_padded[j-2] + 2/3*bls_padded[j+1]
+    return y
+
 class Detector:
     def __init__(self, method = METHOD_BLS_PEAKS):
         #constants
