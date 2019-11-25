@@ -5,6 +5,7 @@
 import scipy.signal
 import scipy.interpolate
 import numpy as np
+import csv
 
 #constant: determines length of spline to interpolate signals to
 SPLINE_LENGTH = 1000
@@ -42,6 +43,19 @@ def spline_interpolate(y, N = SPLINE_LENGTH):
     spl = scipy.interpolate.splev(x_i, tck)
     return spl
 
+def read_csv(file_path):
+    wfs = {}
+    with open(file_path, "r") as f:
+        reader = csv.reader(f)
+        for row_raw in reader:
+            if (reader.line_num == 1): continue
+            i = int(row_raw[1])
+            row = np.array(row_raw[3:], dtype='int')
+            if not (i in wfs.keys()):
+                wfs[i] = []
+            wfs[i].append(row)
+    return wfs
+
 def remove_spikes(wf, bl):
     #there are annoying small-amplitude (~250) spikes in the data received via USB.
     #these small spikes are significant enough to mess up Mashad's method, as they are
@@ -52,17 +66,21 @@ def remove_spikes(wf, bl):
     N = len(wf)
     bls = np.array(wf)-np.array(bl) #baseline subtraction
     bls_padded = np.concatenate([[0, 0], bls, [0]]) #pad bls so we can reach negative indices
-    y = wf
+    y = wf.copy()
     #for every sample in waveform
     for i in range(1,N):
         j = i+2 #index padded bls with j so bl[i] == bl_padded[j]
         #determine if this sample is part of a 2-sample spike: two adjacent samples with huge deviation from the baseline in opposite directions
         b = bls_padded[j]
         a = bls_padded[j-1]
+        z = bls_padded[j-2]
         if (abs(a) > spike_thresh and abs(b) > spike_thresh and a*b < 0):
             #set both samples in spike to be near their neighbors in the bls domain, using linear interpolation
             y[i-1] = bl[i-1] + 2/3*bls_padded[j-2] + 1/3*bls_padded[j+1]
             y[i]   = bl[i]   + 1/3*bls_padded[j-2] + 2/3*bls_padded[j+1]
+        elif(i >= 2 and abs(z) > spike_thresh and abs(b) > spike_thresh and b*z < 0):
+            y[i-2] = bl[i-2] + 1/3*bls_padded[j-3] + 1/3*bls_padded[j+1]
+            y[i]   = bl[i]   + 1/3*bls_padded[j-3] + 2/3*bls_padded[j+1]
     return y
 
 class Detector:
