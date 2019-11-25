@@ -234,8 +234,8 @@ def main(cscreen):
     detector = fault_detection.Detector(fault_detection.METHOD_BLS_DEVIATION_CORRECTION)
     fault = (fault_detection.FAULT_NONE, 0)
     raw_baseline = None
-    #TODO base this off of array layout file and distances provided within
-    FEET_TO_PIXELS = 2.1
+    terminal_waveform = None
+    logging = False #if this is true, measured waveforms will be written to a file
     
     ######################################################
     ##                      LOOP                        ##
@@ -291,6 +291,9 @@ def main(cscreen):
                 elif len(wf_deque) > 0:
                     #q was empty, we have some extra time to visualize things
                     wf = np.array(wf_deque.popleft())
+                    if (logging):
+                        with open("SSTDR_waveforms.csv", "a") as f:
+                            f.write(str(pBlock.ts_sec + 0.000001*pBlock.ts_usec)+","+str(list(wf))[1:-1]+'\n')
                     if not (raw_baseline is None):
                         wf = fault_detection.remove_spikes(wf, raw_baseline)
                     wf_i = fault_detection.spline_interpolate(wf)
@@ -302,8 +305,10 @@ def main(cscreen):
                     plt.clf()
                     if (detector.baseline is None): 
                         plt.plot(wf_i)
+                        plt.ylim((-(2**15), 2**15))
                     else:
                         plt.plot(wf_i-detector.baseline)
+                        plt.ylim((-(2**15), 2**15))
                     fig.canvas.draw()
                     image = np.frombuffer(fig.canvas.tostring_rgb(), dtype=np.uint8)
                     image = image.reshape(fig.canvas.get_width_height()[::-1] + (3,))
@@ -322,8 +327,13 @@ def main(cscreen):
                             if event.key == pygame.K_b:
                                 detector.set_baseline(wf_i)#set baseline
                                 raw_baseline = wf #for spike removal, I wish I could integrate this into the detector
+                            elif event.key == pygame.K_l:
+                                logging = not logging
+                            elif event.key == pygame.K_a:
+                                terminal_waveform = wf_i #record waveform representing a disconnect at the panel terminal
                             elif event.key == pygame.K_t:
-                                detector.set_terminal(wf_i)#set terminal waveform
+                                if (terminal_waveform is None): terminal_waveform = wf_i
+                                detector.set_terminal(terminal_waveform)#set terminal points based on recorded terminal waveform and current BLSDT
                             elif event.key == pygame.K_LEFT:
                                 detector.bls_deviation_thresh = detector.bls_deviation_thresh - 0.01 #adjust deviation threshold for peak location
                             elif event.key == pygame.K_RIGHT:
@@ -332,7 +342,6 @@ def main(cscreen):
                     #per-frame logic here
                     is_fault = (fault[0] != fault_detection.FAULT_NONE)
                     fault_d_f = fault[1]
-                    #fault_d_p = fault_d_f * FEET_TO_PIXELS
                     
                     if (is_fault):
                         #TODO update this based on panel_ds so the fault is located properly on the screen
@@ -374,11 +383,17 @@ def main(cscreen):
                     param_text_rect = param_text_surf.get_rect()
                     param_text_rect.bottomright = (SCREEN_X-3, VISUAL_Y - BORDER_WIDTH - int(0.5*BORDER_PADDING) - 3)
                     
+                    logging_string = "Logging to 'SSTDR_waveforms.csv'..." if logging else "Not logging."
+                    logging_text_surf = STATUS_FONT.render(logging_string, True, COLOR_WHITE)
+                    logging_text_rect = logging_text_surf.get_rect()
+                    logging_text_rect.bottomright = param_text_rect.topright
+                    
                     #drawing
                     pscreen.blit(bg_surf, bg_rect)
                     pscreen.blit(term_surf, term_rect)
                     pscreen.blit(fault_text_surf, fault_text_rect)
                     pscreen.blit(param_text_surf, param_text_rect)
+                    pscreen.blit(logging_text_surf, logging_text_rect)
                     pscreen.blit(array_surf, array_rect)
                     if (is_fault):
                         pscreen.blit(hazard_surf, hazard_rect)
