@@ -51,6 +51,9 @@ import fault_detection
 ######################################################
 ##                   CONSTANTS                      ##
 ######################################################
+DEQUE_LENGTH = None #None for no max size
+LOG_FROM_START = True
+
 SCREEN_SIZE = SCREEN_X, SCREEN_Y = 900, 700
 TERMINAL_Y = 200
 VISUAL_Y = SCREEN_Y - TERMINAL_Y
@@ -114,7 +117,7 @@ def main(cscreen):
     #prepare deque for waveform visualization; only stores a few of the most recently received waveforms. appended entries cycle out old ones
     #larger deque -> more maximum latency between visualization and actual system state
     #smaller deque -> not sure why this would be a problem (something about losing information if packets aren't received constantly)
-    wf_deque = deque(maxlen=1)
+    wf_deque = deque(maxlen=DEQUE_LENGTH)
     
     #prepare to visualize waveforms
     fig = plt.figure()
@@ -235,7 +238,7 @@ def main(cscreen):
     fault = (fault_detection.FAULT_NONE, 0)
     raw_baseline = None
     terminal_waveform = None
-    logging = False #if this is true, measured waveforms will be written to a file
+    logging = LOG_FROM_START #if this is true, measured waveforms will be written to a file
     
     ######################################################
     ##                      LOOP                        ##
