@@ -51,6 +51,8 @@ import fault_detection
 ######################################################
 ##                   CONSTANTS                      ##
 ######################################################
+USE_CURSES = False
+
 SCREEN_SIZE = SCREEN_X, SCREEN_Y = 900, 700
 TERMINAL_Y = 200
 VISUAL_Y = SCREEN_Y - TERMINAL_Y
@@ -73,7 +75,7 @@ PANEL_PADDING = (100, 25)
 WIRE_WIDTH = 2
 
 
-def main(cscreen):
+def main(cscreen = None):
     ######################################################
     ##                    STARTUP                       ##
     ######################################################
@@ -95,12 +97,13 @@ def main(cscreen):
 
     #set up scanning interface in curses (cscreen = curses screen)
     print("Opening scanner interface...")
-    cscreen.clear()
-    cscreen.nodelay(True)
-    cscreen.addstr(0,0,"Scanning on filter " + str(arg_filter) + ", address " + str(arg_address) + "...")
-    cscreen.addstr(1,0,"Press 'q' to stop.")
-    cscreen.addstr(3,0,"System OK.")
-    cscreen.refresh()    
+    if not(cscreen is None):
+        cscreen.clear()
+        cscreen.nodelay(True)
+        cscreen.addstr(0,0,"Scanning on filter " + str(arg_filter) + ", address " + str(arg_address) + "...")
+        cscreen.addstr(1,0,"Press 'q' to stop.")
+        cscreen.addstr(3,0,"System OK.")
+        cscreen.refresh()    
     
     #open USBPcap, throwing all output onto a pipe
     usb_fd_r, usb_fd_w = os.pipe()
@@ -263,8 +266,9 @@ def main(cscreen):
                 #show some packet data so it's clear the scanner is working
                 if receiver.q.empty() == False:
                     pBlock = receiver.q.get()
-                    #cscreen.addstr(5,0,"Received packet at timestamp: " + str(pBlock.ts_sec + 0.000001*pBlock.ts_usec)) 
-                    #cscreen.refresh()
+                    #if not(cscreen is None):
+                        #cscreen.addstr(5,0,"Received packet at timestamp: " + str(pBlock.ts_sec + 0.000001*pBlock.ts_usec)) 
+                        #cscreen.refresh()
                     
                     #if received packet may be in a waveform region of the stream:
                     #criteria: input (to host) from endpoint 3 and function == URB_FUNCTION_BULK_OR_INTERRUPT_TRANSFER
@@ -279,9 +283,10 @@ def main(cscreen):
                                 #perform processing on raw waveform
                                 wf = process_waveform_region(payloadString)
                                 wf_deque.append(wf)
-                                #show that we've received a waveform
-                                cscreen.addstr(7,0,"Received waveform at timestamp: " + str(pBlock.ts_sec + 0.000001*pBlock.ts_usec))
-                                cscreen.refresh()                                                     
+                                if not(cscreen is None):
+                                    #show that we've received a waveform
+                                    cscreen.addstr(7,0,"Received waveform at timestamp: " + str(pBlock.ts_sec + 0.000001*pBlock.ts_usec))
+                                    cscreen.refresh()                                                     
                                 #prepare to receive next waveform region                            
                                 payloadString = b''
                                 byteCount = 0
@@ -402,20 +407,21 @@ def main(cscreen):
                 ###################################################################################################################################
                 #       CURSES: Check for quit
                 ###################################################################################################################################
-                c = cscreen.getch()
-                if (c == ord('q')):
-                    cscreen.addstr(0,0,"Quitting: Terminating scanner...")
-                    cscreen.refresh()                
-                    usbpcap_process.terminate()                
-                    cscreen.addstr(0,0, "Stopped scanner. Waiting for threads...")
-                    cscreen.refresh()
-                    receiver.halt()
-                    while(rec_thread.running()):
-                        pass
-                    usb_stream.close()
-                    #executor.shutdown() #performed implicitly by "with" statement
-                    cscreen.addstr(0,0, "Finished. Exiting...")
-                    break
+                if not(cscreen is None):
+                    c = cscreen.getch()
+                    if (c == ord('q')):
+                        cscreen.addstr(0,0,"Quitting: Terminating scanner...")
+                        cscreen.refresh()                
+                        usbpcap_process.terminate()                
+                        cscreen.addstr(0,0, "Stopped scanner. Waiting for threads...")
+                        cscreen.refresh()
+                        receiver.halt()
+                        while(rec_thread.running()):
+                            pass
+                        usb_stream.close()
+                        #executor.shutdown() #performed implicitly by "with" statement
+                        cscreen.addstr(0,0, "Finished. Exiting...")
+                        break
         except:
             print("Exception Occurred:")
             print('='*40)
@@ -425,6 +431,8 @@ def main(cscreen):
     print("All done. :)")
 
 def process_waveform_region(pString):
+    print(pString[0:6])
+    print(pString[-1])
     waveform = convert_waveform_region(pString)[6:-1]
     #we can do anything with this waveform
     return waveform
@@ -469,5 +477,7 @@ def load_panel_layout(yfile_path):
         return None
 
 if (__name__ == '__main__'):
-    curses.wrapper(main)
-
+    if USE_CURSES:
+        curses.wrapper(main)
+    else:
+        main()
