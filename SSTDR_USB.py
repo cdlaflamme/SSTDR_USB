@@ -248,7 +248,10 @@ def main(cscreen = None):
     #first child thread: receives and interprets packets using receiver.run()
     with ThreadPoolExecutor(max_workers=3) as executor:
         rec_thread = executor.submit(receiver.run)
-
+        
+        valid_waveform_prefix = b'\xaa\xaa\xaa\xad\x00\xbf' #valid waveform regions start with this pattern
+        valid_waveform_suffix = 253 #valid waveform regions end with this pattern
+        
         payloadString = b''
         byteCount = 0
         WAVEFORM_BYTE_COUNT = 199 #every waveform region contains 199 payload bytes
@@ -279,7 +282,13 @@ def main(cscreen = None):
                         if (l > 0):
                             payloadString = payloadString + p
                             byteCount = byteCount + l
-                            if (byteCount >= WAVEFORM_BYTE_COUNT):
+                            #for the first few bytes, compare it to a prefix pattern that all valid waveforms start with.
+                            if (bytecount <= len(valid_waveform_prefix)):
+                                if (p != valid_waveform_prefix[bytecount-1]):
+                                    #the current waveform is not valid. throw it out.
+                                    payloadString = b''
+                                    byteCount = 0                                
+                            elif (byteCount >= WAVEFORM_BYTE_COUNT):
                                 #perform processing on raw waveform
                                 wf = process_waveform_region(payloadString)
                                 wf_deque.append(wf)
