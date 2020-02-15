@@ -51,10 +51,12 @@ import fault_detection
 ######################################################
 ##                   CONSTANTS                      ##
 ######################################################
-USE_CURSES = False
+USE_CURSES = True
+VERIFY_WAVEFORMS = True
+DEBUG_VERIFICATION = False
 
-SCREEN_SIZE = SCREEN_X, SCREEN_Y = 900, 700
-TERMINAL_Y = 200
+SCREEN_SIZE = SCREEN_X, SCREEN_Y = 800, 580
+TERMINAL_Y = 100
 VISUAL_Y = SCREEN_Y - TERMINAL_Y
 BORDER_WIDTH = 3
 BORDER_PADDING = 2
@@ -269,6 +271,7 @@ def main(cscreen = None):
                 #show some packet data so it's clear the scanner is working
                 if receiver.q.empty() == False:
                     pBlock = receiver.q.get()
+                    #commented out because this printing was very very slow, and ruined realtime
                     #if not(cscreen is None):
                         #cscreen.addstr(5,0,"Received packet at timestamp: " + str(pBlock.ts_sec + 0.000001*pBlock.ts_usec)) 
                         #cscreen.refresh()
@@ -282,15 +285,36 @@ def main(cscreen = None):
                         if (l > 0):
                             payloadString = payloadString + p
                             byteCount = byteCount + l
+                            if ((l==1 and p==0xaa) or (l>1 and p[0] == 0xaa) or (b'\xaa' in p)):
+                                if not cscreen is None and DEBUG_VERIFICATION:
+                                    cscreen.addstr(13,0,"Received start of prefix at timestamp: " + str(pBlock.ts_sec + 0.000001*pBlock.ts_usec))
+                                    cscreen.addstr(14,4,"Starting payload: " + str(p))
+                                    cscreen.addstr(15,4,"New payload string: " + str(payloadString))
+                                    cscreen.refresh()
+ 
                             #for the first few bytes, compare it to a prefix pattern that all valid waveforms start with.
-                            if (bytecount <= len(valid_waveform_prefix)):
-                                if (p != valid_waveform_prefix[bytecount-1]):
+                            if (VERIFY_WAVEFORMS and byteCount <= len(valid_waveform_prefix)):
+                                #TODO: currently assumes prefix bytes arrive one at a time (ie not in the same payload). this is OK the vast majority of the time.
+                                if (p[0] != valid_waveform_prefix[byteCount-1]):
                                     #the current waveform is not valid. throw it out.
-                                    payloadString = b''
-                                    byteCount = 0                                
+                                    if not(cscreen is None):
+                                        cscreen.addstr(10,0,"Invalid waveform at timestamp: " + str(pBlock.ts_sec + 0.000001*pBlock.ts_usec))
+                                        cscreen.addstr(11,4,"Prefix string: " + str(payloadString) + "; Byte count: " + str(byteCount))
+                                        if (byteCount > 1):
+                                            cscreen.addstr(12,4,"Last long invalid prefix: "+ str(payloadString) + "; Byte count: " + str(byteCount))
+                                        cscreen.refresh()
+                                    else:
+                                        print("Invalid waveform at timestamp: " + str(pBlock.ts_sec + 0.000001*pBlock.ts_usec))
+                                        print("Prefix string: " + str(payloadString)+'\n')
+                                    if ((l==1 and p==0xaa) or (l>1 and p[0] == 0xaa) or (b'\xaa' in p)): #if the byte that ruined everything may be the start of a valid region, keep it
+                                        payloadString = b'' + p
+                                        byteCount = l
+                                    else:
+                                        payloadString = b''
+                                        byteCount = 0
                             elif (byteCount >= WAVEFORM_BYTE_COUNT):
                                 #perform processing on raw waveform
-                                wf = process_waveform_region(payloadString)
+                                wf = process_waveform_region(payloadString,cscreen)
                                 wf_deque.append(wf)
                                 if not(cscreen is None):
                                     #show that we've received a waveform
@@ -317,12 +341,19 @@ def main(cscreen = None):
                     ###################################################################################################################################
                     #code from https://stackoverflow.com/questions/40126176/fast-live-plotting-in-matplotlib-pyplot
                     plt.clf()
+                    plt.xlabel("Distance (feet)")
+                    plt.ylabel("Correlation With Reflection")
+                    plt.gcf().subplots_adjust(left=0.15)
                     if (detector.baseline is None): 
-                        plt.plot(wf_i)
+                        #plt.plot(fault_detection.FEET_VECTOR, wf_i/max(abs(wf_i)))
+                        plt.plot(fault_detection.FEET_VECTOR, wf_i)
+                        #plt.ylim((-1,1))
                         plt.ylim((-(2**15), 2**15))
+                        plt.xlim((fault_detection.FEET_VECTOR[0], fault_detection.FEET_VECTOR[-1]))
                     else:
-                        plt.plot(wf_i-detector.baseline)
+                        plt.plot(fault_detection.FEET_VECTOR, wf_i-detector.baseline)
                         plt.ylim((-(2**15), 2**15))
+                        plt.xlim((fault_detection.FEET_VECTOR[0], fault_detection.FEET_VECTOR[-1]))
                     fig.canvas.draw()
                     image = np.frombuffer(fig.canvas.tostring_rgb(), dtype=np.uint8)
                     image = image.reshape(fig.canvas.get_width_height()[::-1] + (3,))
@@ -439,9 +470,12 @@ def main(cscreen = None):
             
     print("All done. :)")
 
-def process_waveform_region(pString):
-    print(pString[0:6])
-    print(pString[-1])
+def process_waveform_region(pString,cscreen = None):
+    if not cscreen is None and DEBUG_VERIFICATION:
+        cscreen.addstr(8,4,"Waveform prefix: "+str(pString[0:6]))
+        cscreen.refresh()
+    elif DEBUG_VERIFICATION:
+        print("Prefix: "+str(pString[0:6])+'\n')
     waveform = convert_waveform_region(pString)[6:-1]
     #we can do anything with this waveform
     return waveform

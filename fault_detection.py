@@ -9,6 +9,8 @@ import csv
 
 #constant: determines length of spline to interpolate signals to
 SPLINE_LENGTH = 1000
+FEET_PER_SAMPLE = 3.63716 #from .lws file... accuracy not verified
+FEET_VECTOR = np.arange(0,SPLINE_LENGTH)*FEET_PER_SAMPLE*92/SPLINE_LENGTH
 
 #constants representing fault type. returned by "detect_faults()"
 FAULT_NONE = 0
@@ -87,7 +89,7 @@ class Detector:
     def __init__(self, method = METHOD_BLS_PEAKS):
         #constants
         self.VOP = 0.71 #from .lws file
-        self.units_per_sample = 3.63716*92/SPLINE_LENGTH #from .lws file... accuracy not verified (*92/1000 is to convert for spline length)
+        self.units_per_sample = FEET_PER_SAMPLE*92/SPLINE_LENGTH #convert feet per sample for spline length
         self.bls_deviation_thresh = 0.10 #(B)ase(L)ine (S)ubtraction deviation threshold: percent variations smaller than this in the baseline-subtracted waveform will be ignored
         #init of internal variables
         self.baseline = None
