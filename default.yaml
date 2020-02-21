@@ -3,4 +3,5 @@
   header_cable_length: 194 #in feet
   home_cable_length: 194 #in feet
   panel_cable_length: 2.9167 #in feet
+  panel_electrical_length: 20 #in feet, 20 IS NOT A MEANINGFUL VALUE, THIS IS A DUMMY VALUE
   panel_count: 5

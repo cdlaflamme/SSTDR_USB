@@ -1,0 +1,37 @@
+1: 26 modules 965v; canadian solar
+2: 24 modules 949v; LG
+
+====
+49'7"+25'
+snow on ground, my cable taped, theirs not
+did just cables, negative lead, positive lead, full string, then disconnect sequence around the loop.
+
+=====
+day2 cnd
+964 volts, same config
+logs:
+0 our cable
+1 both cables
+2 neg lead
+3 pos lead
+4 full system
+5+ dowen the loop, starting with positive lead
+
+lg
+980V, same config
+0 full cable
+1 neg lead
+2 pos lead
+3 ful sys
+4+ sequence, starting w positive lead
+=====
+notes for later
+
+on program launch (should be on start logging but I'm lazy):
+open file a+. seek to beginning, read first char. if nothing, empty:
+write header row, set session/log number to 0.
+if not empty:
+seek to end, read last line (how?), set session to prev session+1, number=0
+
+on log: start logging
+on stop log: increment log number

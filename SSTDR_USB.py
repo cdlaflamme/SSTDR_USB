@@ -34,6 +34,7 @@ import subprocess
 from concurrent.futures import ThreadPoolExecutor
 import traceback
 import threading
+import time
 
 #python libraries
 import numpy as np
@@ -55,7 +56,7 @@ USE_CURSES = True
 VERIFY_WAVEFORMS = True
 DEBUG_VERIFICATION = False
 
-SCREEN_SIZE = SCREEN_X, SCREEN_Y = 800, 580
+SCREEN_SIZE = SCREEN_X, SCREEN_Y = 1600, 580
 TERMINAL_Y = 100
 VISUAL_Y = SCREEN_Y - TERMINAL_Y
 BORDER_WIDTH = 3
@@ -72,17 +73,17 @@ TERMINAL_COLOR = COLOR_WHITE
 WIRE_COLOR = COLOR_BLUE
 TEXT_COLOR = COLOR_BLACK
 
-PANEL_SCALE = 1/6
-PANEL_PADDING = (100, 25)
+PANEL_SCALE = 1/15
+PANEL_PADDING = (50, 50)
 WIRE_WIDTH = 2
-
+PANEL_SCREEN_X_RATIO = 1/2+1/8
 
 def main(cscreen = None):
     ######################################################
     ##                    STARTUP                       ##
     ######################################################
     
-    #read arguments, prepare to launch usbpcap
+    #read arguments
     if ([3,4].count(len(sys.argv)) == 0):
         print("Usage: python SSTDR_USB.py <filter> <device address> [layout yaml path]")
         return
@@ -90,32 +91,61 @@ def main(cscreen = None):
     if (len(sys.argv) == 4):
         yaml_path = sys.argv[4]        
     else:
-        yaml_path = 'default.yaml'
+        #yaml_path = 'default.yaml'
+        yaml_path = 'NREL_string.yaml'
     
+    file_mode = True
+    output_path = "SSTDR_waveforms.csv"
+    input_path = "NREL_sequence_canadian_1.csv"
     arg_filter = sys.argv[1]
     arg_address = sys.argv[2]
     path = "C:\\Program Files\\USBPcap\\USBPcapCMD.exe"
     args = [path, "-d", "\\\\.\\USBPcap" + str(arg_filter), "--devices", str(arg_address), "-o", "-"]
+    
+    #prepare output file for logging
+    with open(output_path, "a+") as out_f:
+        out_f.seek(0,0)
+        first_char = out_f.read(1)
+        if (first_char == ''):
+            #file did not exist or is empty. write header row; set session/log index to 0
+            #write header row
+            out_f.write("session_number,log_number,timestamp,waveform\n")
+            session_number = 0
+            log_number = 0
+        else:
+            #file was not empty. jump almost to end, read last line, extract session index
+            #"read up until start of last line" code from S.O. user Trasp: https://stackoverflow.com/questions/3346430/what-is-the-most-efficient-way-to-get-first-and-last-line-of-a-text-file/3346788
+            with open(output_path, "rb") as f:
+                f.seek(-2, os.SEEK_END)     # Jump to the second last byte.
+                while f.read(1) != b"\n":   # Until EOL is found...
+                    f.seek(-2, os.SEEK_CUR) # ...jump back the read byte plus one more.
+                last = f.readline()         # Read last line as bytes.
+            session_number = int.from_bytes(last.split(b',')[0],'little') #assumes little endian, and that session index is present in column 0 (as will be standard in the future)
+            log_number = 0
 
     #set up scanning interface in curses (cscreen = curses screen)
     print("Opening scanner interface...")
     if not(cscreen is None):
         cscreen.clear()
         cscreen.nodelay(True)
-        cscreen.addstr(0,0,"Scanning on filter " + str(arg_filter) + ", address " + str(arg_address) + "...")
+        if (file_mode):
+            cscreen.addstr(0,0,"Playing back input file: '" + input_path +"'...")
+        else:
+            cscreen.addstr(0,0,"Scanning on filter " + str(arg_filter) + ", address " + str(arg_address) + "...")
         cscreen.addstr(1,0,"Press 'q' to stop.")
         cscreen.addstr(3,0,"System OK.")
         cscreen.refresh()    
     
-    #open USBPcap, throwing all output onto a pipe
-    usb_fd_r, usb_fd_w = os.pipe()
-    usbpcap_process = subprocess.Popen(args, stdout=usb_fd_w)
-    #start receiving usbpcap output and organizing it into packets
-    usb_stream = os.fdopen(usb_fd_r, "rb")
-    #set up receiver to process raw USB bytestream
-    halt_threads = threading.Event()
-    receiver = PcapPacketReceiver(usb_stream, loop=True, halt_event=halt_threads)
-    
+    if (not file_mode):
+        #open USBPcap, throwing all output onto a pipe
+        usb_fd_r, usb_fd_w = os.pipe()
+        usbpcap_process = subprocess.Popen(args, stdout=usb_fd_w)
+        #start receiving usbpcap output and organizing it into packets
+        usb_stream = os.fdopen(usb_fd_r, "rb")
+        #set up receiver to process raw USB bytestream
+        halt_threads = threading.Event()
+        receiver = PcapPacketReceiver(usb_stream, loop=True, halt_event=halt_threads)
+        
     #prepare deque for waveform visualization; only stores a few of the most recently received waveforms. appended entries cycle out old ones
     #larger deque -> more maximum latency between visualization and actual system state
     #smaller deque -> not sure why this would be a problem (something about losing information if packets aren't received constantly)
@@ -181,7 +211,7 @@ def main(cscreen = None):
     bg_surf.blit(text_surf, text_rect)
 
     #load panel layout
-    panel_layout, panel_ds = load_panel_layout(yaml_path)
+    panel_layout, panel_ds, panel_length = load_panel_layout(yaml_path)
     panel_cols = panel_rows = 0
     try:
         N = len(panel_ds)
@@ -217,7 +247,7 @@ def main(cscreen = None):
         array_surf.blit(panel_surf, panel_rect)
 
     array_rect = array_surf.get_rect()
-    array_rect.center = (int(SCREEN_X*2/3), int(VISUAL_Y/2))
+    array_rect.center = (int(SCREEN_X*PANEL_SCREEN_X_RATIO), int(VISUAL_Y/2))
 
     WIRE_COORDS = []
     for p in PANEL_COORDS:
@@ -236,11 +266,16 @@ def main(cscreen = None):
     ##              FAULT DETECTION SETUP               ##
     ######################################################
 
-    detector = fault_detection.Detector(fault_detection.METHOD_BLS_DEVIATION_CORRECTION)
+    detector = fault_detection.Detector(fault_detection.METHOD_LOW_PASS_PEAKS)
     fault = (fault_detection.FAULT_NONE, 0)
-    raw_baseline = None
     terminal_waveform = None
     logging = False #if this is true, measured waveforms will be written to a file
+    
+    first_timestamp = None
+    first_time_played = None
+    input_row_index = 0
+    if file_mode:
+        input_data = fault_detection.read_csv_ungrouped(input_path)
     
     ######################################################
     ##                      LOOP                        ##
@@ -249,7 +284,8 @@ def main(cscreen = None):
     #set up threads:
     #first child thread: receives and interprets packets using receiver.run()
     with ThreadPoolExecutor(max_workers=3) as executor:
-        rec_thread = executor.submit(receiver.run)
+        if not file_mode:
+            rec_thread = executor.submit(receiver.run)
         
         valid_waveform_prefix = b'\xaa\xaa\xaa\xad\x00\xbf' #valid waveform regions start with this pattern
         valid_waveform_suffix = 253 #valid waveform regions end with this pattern
@@ -261,6 +297,17 @@ def main(cscreen = None):
         try:
             while(True):
                 #take packet from Q, process in some way
+                if file_mode:
+                    #TODO change this to whatever the baseline index ought to be
+                    if input_row_index == 12:
+                        detector.set_baseline(input_data[input_row_index][3:])
+                    if input_row_index == 0:
+                        first_time_played = time.time()
+                        first_timestamp = input_data[0][2]
+                    if True:#time.time() - first_time_played >= input_data[input_row_index+1][2] - first_timestamp:
+                        input_row_index = input_row_index + 1
+                    wf_deque.append(np.array(input_data[input_row_index][3:]))
+                    time.sleep(0.25)
                 """
                 goal is to identify shape of data in intermittent test, and have this
                 code recognize when a sequence of packet blocks represents a
@@ -268,12 +315,11 @@ def main(cscreen = None):
                 bytes, and either shown for visualization (pyplot?) or fed to matlab
                 for processing (which is the ultimate goal).
                 """
-                #show some packet data so it's clear the scanner is working
-                if receiver.q.empty() == False:
+                if not file_mode and receiver.q.empty() == False:
                     pBlock = receiver.q.get()
                     #commented out because this printing was very very slow, and ruined realtime
                     #if not(cscreen is None):
-                        #cscreen.addstr(5,0,"Received packet at timestamp: " + str(pBlock.ts_sec + 0.000001*pBlock.ts_usec)) 
+                        #cscreen.addstr(5,0,"Received packet at timestamp: " + str(pBlock.ts_sec + 0.000001*pBlock.ts_usec)) #show some packet data so it's clear the scanner is working
                         #cscreen.refresh()
                     
                     #if received packet may be in a waveform region of the stream:
@@ -326,34 +372,40 @@ def main(cscreen = None):
                     elif (byteCount > 0):
                         payloadString = b''
                         byteCount = 0
+                
                 elif len(wf_deque) > 0:
                     #q was empty, we have some extra time to visualize things
                     wf = np.array(wf_deque.popleft())
                     if (logging):
+                        #write row with session index, log index, timestamp, and measured waveform.
                         with open("SSTDR_waveforms.csv", "a") as f:
-                            f.write(str(pBlock.ts_sec + 0.000001*pBlock.ts_usec)+","+str(list(wf))[1:-1]+'\n')
-                    if not (raw_baseline is None):
-                        wf = fault_detection.remove_spikes(wf, raw_baseline)
-                    wf_i = fault_detection.spline_interpolate(wf)
+                            f.write(str(session_number)+","+str(log_number)+","+str(pBlock.ts_sec + 0.000001*pBlock.ts_usec)+","+str(list(wf))[1:-1]+'\n')
                     
                     ###################################################################################################################################
                     #       PYFORMULAS: visualize waveform
                     ###################################################################################################################################
-                    #code from https://stackoverflow.com/questions/40126176/fast-live-plotting-in-matplotlib-pyplot
+                    #some code from https://stackoverflow.com/questions/40126176/fast-live-plotting-in-matplotlib-pyplot
                     plt.clf()
                     plt.xlabel("Distance (feet)")
                     plt.ylabel("Correlation With Reflection")
                     plt.gcf().subplots_adjust(left=0.15)
-                    if (detector.baseline is None): 
+                
+                    if detector.raw_baseline is None:
                         #plt.plot(fault_detection.FEET_VECTOR, wf_i/max(abs(wf_i)))
-                        plt.plot(fault_detection.FEET_VECTOR, wf_i)
+                        plt.plot(fault_detection.SPLINE_FEET_VECTOR-detector.spline_feet_offset, detector.last_processed_waveform)
                         #plt.ylim((-1,1))
                         plt.ylim((-(2**15), 2**15))
-                        plt.xlim((fault_detection.FEET_VECTOR[0], fault_detection.FEET_VECTOR[-1]))
+                        plt.xlim((fault_detection.SPLINE_FEET_VECTOR[0]-detector.spline_feet_offset, fault_detection.SPLINE_FEET_VECTOR[-1]-detector.spline_feet_offset))
                     else:
-                        plt.plot(fault_detection.FEET_VECTOR, wf_i-detector.baseline)
-                        plt.ylim((-(2**15), 2**15))
-                        plt.xlim((fault_detection.FEET_VECTOR[0], fault_detection.FEET_VECTOR[-1]))
+                        #plot BLS
+                        bls = detector.last_processed_waveform - detector.processed_baseline
+                        max_f = fault_detection.SPLINE_FEET_VECTOR[np.argmax(bls)]-detector.spline_feet_offset
+                        plt.plot(fault_detection.SPLINE_FEET_VECTOR-detector.spline_feet_offset, bls)
+                        plt.plot([max_f, max_f], [-750, 750])
+                        #plt.ylim((-1,1))
+                        plt.ylim((-(750), 750))
+                        plt.xlim((fault_detection.SPLINE_FEET_VECTOR[0]-detector.spline_feet_offset, fault_detection.SPLINE_FEET_VECTOR[-1]-detector.spline_feet_offset))
+                    
                     fig.canvas.draw()
                     image = np.frombuffer(fig.canvas.tostring_rgb(), dtype=np.uint8)
                     image = image.reshape(fig.canvas.get_width_height()[::-1] + (3,))
@@ -362,7 +414,7 @@ def main(cscreen = None):
                     ###################################################################################################################################
                     #       PYGAME: fault visualization
                     ###################################################################################################################################
-                    fault = detector.detect_faults(wf_i)
+                    fault = detector.detect_faults(wf)
                     
                     for event in pygame.event.get():
                         if event.type == pygame.QUIT or (event.type == pygame.KEYDOWN and event.key == pygame.K_ESCAPE):
@@ -370,14 +422,20 @@ def main(cscreen = None):
                             pygame.quit()
                         if event.type == pygame.KEYDOWN:
                             if event.key == pygame.K_b:
-                                detector.set_baseline(wf_i)#set baseline
-                                raw_baseline = wf #for spike removal, I wish I could integrate this into the detector
+                                detector.set_baseline(wf)#set baseline
                             elif event.key == pygame.K_l:
-                                logging = not logging
+                                #START/STOP LOGGING.
+                                if logging:
+                                    #stop logging; increment log index.
+                                    log_number = log_number+1
+                                    logging = False
+                                else:
+                                    #start logging
+                                    logging = True
                             elif event.key == pygame.K_a:
-                                terminal_waveform = wf_i #record waveform representing a disconnect at the panel terminal
+                                terminal_waveform = wf #record waveform representing a disconnect at the panel terminal
                             elif event.key == pygame.K_t:
-                                if (terminal_waveform is None): terminal_waveform = wf_i
+                                if (terminal_waveform is None): terminal_waveform = wf
                                 detector.set_terminal(terminal_waveform)#set terminal points based on recorded terminal waveform and current BLSDT
                             elif event.key == pygame.K_LEFT:
                                 detector.bls_deviation_thresh = detector.bls_deviation_thresh - 0.01 #adjust deviation threshold for peak location
@@ -389,13 +447,11 @@ def main(cscreen = None):
                     fault_d_f = fault[1]
                     
                     if (is_fault):
-                        #TODO update this based on panel_ds so the fault is located properly on the screen
                         d = 0
                         px = WIRE_COORDS[0][0]
                         py = WIRE_COORDS[0][1]
                         hazard_point = WIRE_COORDS[-1]
                         
-                        #new code here
                         #determine which panel the fault is AFTER
                         for i in range(len(panel_ds)):
                             if (panel_ds[i] > fault_d_f):
@@ -417,14 +473,18 @@ def main(cscreen = None):
                         step = ((post_x-pre_x)**2 + (post_y-pre_y)**2)**0.5 #distance IN PIXELS between post and pre points
                         hazard_rect.center = (pre_x + hsr*(post_x-pre_x), pre_y + hsr*(post_y-pre_y))
                         
+                        #subtract from distance to account for panel length; only want to report cable length
+                        fault_cable_location = fault_d_f - panel_length*i
+                        
                         fault_name = fault_detection.get_fault_name(fault[0])
-                        fault_text_surf = TERMINAL_FONT.render(fault_name + " located at " + str(fault_d_f) + " feet", True, TEXT_COLOR)
+                        fault_text_surf = TERMINAL_FONT.render(fault_name + " located at " + str(round(fault_cable_location,3)) + " feet", True, TEXT_COLOR)
                     else:
                         fault_text_surf = TERMINAL_FONT.render("System OK", True, TEXT_COLOR)
                     fault_text_rect = fault_text_surf.get_rect()
                     fault_text_rect.center = term_rect.center
                     
-                    param_text_surf = STATUS_FONT.render("BLS deviation threshold:" + str(detector.bls_deviation_thresh), True, COLOR_WHITE)
+                    #param_text_surf = STATUS_FONT.render("BLS deviation threshold:" + str(detector.bls_deviation_thresh), True, COLOR_WHITE)
+                    param_text_surf = STATUS_FONT.render("LPF Cutoff Frequency: 6 MHz", True, COLOR_WHITE) #TODO don't hard code this, allow for live control of cutoff frequency
                     param_text_rect = param_text_surf.get_rect()
                     param_text_rect.bottomright = (SCREEN_X-3, VISUAL_Y - BORDER_WIDTH - int(0.5*BORDER_PADDING) - 3)
                     
@@ -503,14 +563,14 @@ def load_panel_layout(yfile_path):
             data = yaml.safe_load(f)
         panel_series = data[0]
         N = panel_series['panel_count'] #TODO: only loads 0th series. for multi-series systems, this should be changed
-        panel_ds = [0]*N
-        panel_ds[0] = panel_series['header_cable_length'] + panel_series['panel_cable_length']
+        panel_ds = [0]*N #init empty array
+        panel_ds[0] = panel_series['header_cable_length'] + panel_series['panel_cable_length'] + 1/2*panel_series['panel_electrical_length']
         for i in range(1,N):
-            panel_ds[i] = panel_ds[i-1] + 2*panel_series['panel_cable_length']
+            panel_ds[i] = panel_ds[i-1] + 2*panel_series['panel_cable_length'] + panel_series['panel_electrical_length'] #elec length not halved; there's two contributing panels
         #returns tuple:
         #   panel_series: layout dictionary directly loaded from .yaml
         #   panel_ds: list of panel distances from SSTDR, in feet
-        return (panel_series, panel_ds)
+        return (panel_series, panel_ds, panel_series['panel_electrical_length'])
         
     except:
         print("Exception Occurred:")
