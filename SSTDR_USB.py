@@ -52,7 +52,7 @@ import fault_detection
 ######################################################
 ##                   CONSTANTS                      ##
 ######################################################
-USE_CURSES = True
+USE_CURSES = False
 VERIFY_WAVEFORMS = True
 DEBUG_VERIFICATION = False
 
@@ -92,11 +92,12 @@ def main(cscreen = None):
         yaml_path = sys.argv[4]        
     else:
         #yaml_path = 'default.yaml'
-        yaml_path = 'NREL_string.yaml'
+        yaml_path = 'NREL_LG_string.yaml'
     
-    file_mode = True
+    file_mode = False
     output_path = "SSTDR_waveforms.csv"
     input_path = "NREL_sequence_canadian_1.csv"
+    file_baseline_index = 29
     arg_filter = sys.argv[1]
     arg_address = sys.argv[2]
     path = "C:\\Program Files\\USBPcap\\USBPcapCMD.exe"
@@ -299,7 +300,7 @@ def main(cscreen = None):
                 #take packet from Q, process in some way
                 if file_mode:
                     #TODO change this to whatever the baseline index ought to be
-                    if input_row_index == 12:
+                    if input_row_index == file_baseline_index:
                         detector.set_baseline(input_data[input_row_index][3:])
                     if input_row_index == 0:
                         first_time_played = time.time()

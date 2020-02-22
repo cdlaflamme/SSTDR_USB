@@ -1,0 +1,7 @@
+- name: NREL_canadian_solar_string
+  layout: loop
+  header_cable_length: 74.583 #in feet
+  home_cable_length: 74.583 #in feet
+  panel_cable_length: 3.283 #in feet
+  panel_electrical_length: 35.2727 #in feet, minimizes error from NREL test 1
+  panel_count: 24

@@ -17,8 +17,8 @@ FEET_PER_SPLINE_SAMPLE = FEET_PER_SAMPLE*92/1000
 
 #read waveforms from one of the files. group waveforms based on log number.
 #wfs_all = fd.read_wfs("NREL_sequence_LG_1.csv")
-wfs_all = fd.read_wfs("NREL_sequence_canadian_2.csv")
-bl_index = 4
+wfs_all = fd.read_wfs("NREL_sequence_canadian_1.csv")
+bl_index = 3
 
 N = len(wfs_all)
 wfs_0 = np.zeros((N,92))
