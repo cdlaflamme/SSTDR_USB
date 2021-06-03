@@ -56,7 +56,7 @@ USE_CURSES = True
 VERIFY_WAVEFORMS = True
 DEBUG_VERIFICATION = False
 
-SCREEN_SIZE = SCREEN_X, SCREEN_Y = 1600, 580
+SCREEN_SIZE = SCREEN_X, SCREEN_Y = 800, 480
 TERMINAL_Y = 100
 VISUAL_Y = SCREEN_Y - TERMINAL_Y
 BORDER_WIDTH = 3
@@ -91,10 +91,9 @@ def main(cscreen = None):
     if (len(sys.argv) == 4):
         yaml_path = sys.argv[4]        
     else:
-        #yaml_path = 'default.yaml'
-        yaml_path = 'NREL_string.yaml'
+        yaml_path = 'default.yaml'
     
-    file_mode = True
+    file_mode = False
     output_path = "SSTDR_waveforms.csv"
     input_path = "NREL_sequence_canadian_1.csv"
     arg_filter = sys.argv[1]
@@ -120,7 +119,7 @@ def main(cscreen = None):
                 while f.read(1) != b"\n":   # Until EOL is found...
                     f.seek(-2, os.SEEK_CUR) # ...jump back the read byte plus one more.
                 last = f.readline()         # Read last line as bytes.
-            session_number = int.from_bytes(last.split(b',')[0],'little') #assumes little endian, and that session index is present in column 0 (as will be standard in the future)
+            session_number = 1+int(chr(int.from_bytes(last.split(b',')[0],'little'))) #assumes little endian, and that session index is present in column 0 (as will be standard in the future)
             log_number = 0
 
     #set up scanning interface in curses (cscreen = curses screen)
@@ -266,10 +265,11 @@ def main(cscreen = None):
     ##              FAULT DETECTION SETUP               ##
     ######################################################
 
-    detector = fault_detection.Detector(fault_detection.METHOD_LOW_PASS_PEAKS)
+    detector = fault_detection.Detector(fault_detection.METHOD_NONE)
     fault = (fault_detection.FAULT_NONE, 0)
     terminal_waveform = None
     logging = False #if this is true, measured waveforms will be written to a file
+    measurement_counter = 0
     
     first_timestamp = None
     first_time_played = None
@@ -380,6 +380,11 @@ def main(cscreen = None):
                         #write row with session index, log index, timestamp, and measured waveform.
                         with open("SSTDR_waveforms.csv", "a") as f:
                             f.write(str(session_number)+","+str(log_number)+","+str(pBlock.ts_sec + 0.000001*pBlock.ts_usec)+","+str(list(wf))[1:-1]+'\n')
+                        if measurement_counter > 0:
+                            measurement_counter -= 1
+                            if measurement_counter == 0:
+                                logging = False                    
+                                log_number += 1
                     
                     ###################################################################################################################################
                     #       PYFORMULAS: visualize waveform
@@ -428,6 +433,7 @@ def main(cscreen = None):
                                 if logging:
                                     #stop logging; increment log index.
                                     log_number = log_number+1
+                                    measurement_counter = 0
                                     logging = False
                                 else:
                                     #start logging
@@ -441,6 +447,10 @@ def main(cscreen = None):
                                 detector.bls_deviation_thresh = detector.bls_deviation_thresh - 0.01 #adjust deviation threshold for peak location
                             elif event.key == pygame.K_RIGHT:
                                 detector.bls_deviation_thresh = detector.bls_deviation_thresh + 0.01
+                            elif event.key == pygame.K_w:
+                                #log for 10 samples. "window capture"
+                                logging = True
+                                measurement_counter = 10 #counts down to zero
                                 
                     #per-frame logic here
                     is_fault = (fault[0] != fault_detection.FAULT_NONE)
@@ -484,7 +494,8 @@ def main(cscreen = None):
                     fault_text_rect.center = term_rect.center
                     
                     #param_text_surf = STATUS_FONT.render("BLS deviation threshold:" + str(detector.bls_deviation_thresh), True, COLOR_WHITE)
-                    param_text_surf = STATUS_FONT.render("LPF Cutoff Frequency: 6 MHz", True, COLOR_WHITE) #TODO don't hard code this, allow for live control of cutoff frequency
+                    #param_text_surf = STATUS_FONT.render("LPF Cutoff Frequency: 6 MHz", True, COLOR_WHITE) #TODO don't hard code this, allow for live control of cutoff frequency
+                    param_text_surf = STATUS_FONT.render("Current Log Number: "+str(log_number), True, COLOR_WHITE)
                     param_text_rect = param_text_surf.get_rect()
                     param_text_rect.bottomright = (SCREEN_X-3, VISUAL_Y - BORDER_WIDTH - int(0.5*BORDER_PADDING) - 3)
                     
