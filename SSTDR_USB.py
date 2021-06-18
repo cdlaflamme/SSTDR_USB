@@ -93,7 +93,7 @@ def main(cscreen = None):
     yaml_path = 'default.yaml'
     
     #read cmd line arguments
-    valid_args = ['-yaml', 'y', '-filter', '-f', '-address', '-a', '-file', '-out', '-o']
+    valid_args = ['-yaml', 'y', '-filter', '-f', '-address', '-a', '-file', '-out', '-o', '-curses', '-c', '-no-curses', '-nc']
     args = {}
     skip = False
     for i,arg in enumerate(sys.argv):
@@ -102,7 +102,8 @@ def main(cscreen = None):
             continue #only look at args in loop
         if arg in valid_args:
             skip = True #skip next word; we use it as a value here
-            value = sys.argv[i+1]
+            if (i+1 < len(sys.argv)):
+                value = sys.argv[i+1]
         if arg in ['-yaml', '-y']:
             yaml_path = value
         elif arg in ['-filter', '-f']:
@@ -114,10 +115,16 @@ def main(cscreen = None):
             input_path = value
         elif arg in ['-out', '-o']:
             output_path = value
+        #elif arg in ['-curses', '-c']:
+        #    USE_CURSES = True
+        #    skip = False
+        #elif arg in ['-no-curses', '-nc']:
+        #    USE_CURSES = False
+        #    skip = False
         
     #prepare usb sniffing
     if (arg_filter is None or arg_address is None):
-        sstdr_device = usb.core.find(idVendor=0x0bda, idProduct=0x0811) #constants for our SSTDR device
+        sstdr_device = usb.core.find(idVendor=0x067b, idProduct=0x2303) #constants for our SSTDR device
         if sstdr_device == None:
             print("Error: Could not automatically find SSTDR device. Either restart it or provide filter/address manually.")
             return
@@ -160,6 +167,8 @@ def main(cscreen = None):
         cscreen.addstr(1,0,"Press 'q' to stop.")
         cscreen.addstr(3,0,"System OK.")
         cscreen.refresh()    
+    else:
+        print("Scanning on filter " + str(arg_filter) + ", address " + str(arg_address) + "...")
     
     if (not file_mode):
         #open USBPcap, throwing all output onto a pipe
