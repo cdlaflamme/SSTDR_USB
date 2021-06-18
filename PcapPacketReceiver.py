@@ -144,6 +144,8 @@ class PcapPacketReceiver:
                 pHeader = self.in_stream.read(4*4)
             if (self.loop == False):
                 break #I miss do-whiles
+            if (self.halt_event.is_set()):
+                break
         
     def halt(self):
         self.halt_event.set()

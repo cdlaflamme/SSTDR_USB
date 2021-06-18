@@ -44,6 +44,7 @@ import pyformulas as pf
 from collections import deque
 import pygame
 import yaml
+import usb
 
 #homegrown code
 from PcapPacketReceiver import *
@@ -52,7 +53,7 @@ import fault_detection
 ######################################################
 ##                   CONSTANTS                      ##
 ######################################################
-USE_CURSES = True
+USE_CURSES = False
 VERIFY_WAVEFORMS = True
 DEBUG_VERIFICATION = False
 
@@ -83,23 +84,48 @@ def main(cscreen = None):
     ##                    STARTUP                       ##
     ######################################################
     
-    #read arguments
-    if ([3,4].count(len(sys.argv)) == 0):
-        print("Usage: python SSTDR_USB.py <filter> <device address> [layout yaml path]")
-        return
-    
-    if (len(sys.argv) == 4):
-        yaml_path = sys.argv[4]        
-    else:
-        yaml_path = 'default.yaml'
-    
+    #default values
+    arg_filter = None
+    arg_address = None
+    input_path = "NREL_sequence_canadian_1.csv"
     file_mode = False
     output_path = "SSTDR_waveforms.csv"
-    input_path = "NREL_sequence_canadian_1.csv"
-    arg_filter = sys.argv[1]
-    arg_address = sys.argv[2]
-    path = "C:\\Program Files\\USBPcap\\USBPcapCMD.exe"
-    args = [path, "-d", "\\\\.\\USBPcap" + str(arg_filter), "--devices", str(arg_address), "-o", "-"]
+    yaml_path = 'default.yaml'
+    
+    #read cmd line arguments
+    valid_args = ['-yaml', 'y', '-filter', '-f', '-address', '-a', '-file', '-out', '-o']
+    args = {}
+    skip = False
+    for i,arg in enumerate(sys.argv):
+        if skip:
+            skip = False
+            continue #only look at args in loop
+        if arg in valid_args:
+            skip = True #skip next word; we use it as a value here
+            value = sys.argv[i+1]
+        if arg in ['-yaml', '-y']:
+            yaml_path = value
+        elif arg in ['-filter', '-f']:
+            arg_filter = int(value)
+        elif arg in ['-address', '-a']:
+            arg_address = int(value)
+        elif arg in ['-file']:
+            file_mode = True
+            input_path = value
+        elif arg in ['-out', '-o']:
+            output_path = value
+        
+    #prepare usb sniffing
+    if (arg_filter is None or arg_address is None):
+        sstdr_device = usb.core.find(idVendor=0x0bda, idProduct=0x0811) #constants for our SSTDR device
+        if sstdr_device == None:
+            print("Error: Could not automatically find SSTDR device. Either restart it or provide filter/address manually.")
+            return
+        arg_filter  = sstdr_device.bus
+        arg_address = sstdr_device.address
+    
+    usb_path = "C:\\Program Files\\USBPcap\\USBPcapCMD.exe"
+    usb_args = [usb_path, "-d", "\\\\.\\USBPcap" + str(arg_filter), "--devices", str(arg_address), "-o", "-"]
     
     #prepare output file for logging
     with open(output_path, "a+") as out_f:
@@ -138,7 +164,7 @@ def main(cscreen = None):
     if (not file_mode):
         #open USBPcap, throwing all output onto a pipe
         usb_fd_r, usb_fd_w = os.pipe()
-        usbpcap_process = subprocess.Popen(args, stdout=usb_fd_w)
+        usbpcap_process = subprocess.Popen(usb_args, stdout=usb_fd_w)
         #start receiving usbpcap output and organizing it into packets
         usb_stream = os.fdopen(usb_fd_r, "rb")
         #set up receiver to process raw USB bytestream
@@ -527,8 +553,8 @@ def main(cscreen = None):
                         cscreen.addstr(0,0, "Stopped scanner. Waiting for threads...")
                         cscreen.refresh()
                         receiver.halt()
-                        while(rec_thread.running()):
-                            pass
+                        #while(rec_thread.running()):
+                        #    pass
                         usb_stream.close()
                         #executor.shutdown() #performed implicitly by "with" statement
                         cscreen.addstr(0,0, "Finished. Exiting...")
