@@ -53,7 +53,7 @@ import fault_detection
 ######################################################
 ##                   CONSTANTS                      ##
 ######################################################
-USE_CURSES = False
+USE_CURSES = True
 VERIFY_WAVEFORMS = True
 DEBUG_VERIFICATION = False
 
