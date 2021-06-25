@@ -295,7 +295,16 @@ def main(cscreen = None):
     term_surf.fill(TERMINAL_COLOR)
     term_rect = term_surf.get_rect()
     term_rect.bottom = SCREEN_Y
-
+    
+    button_text_p = 5 #padding
+    button_outer_p = 5
+    button_size = list(STATUS_FONT.size("Measure"))
+    button_size[0] += 2*button_text_p
+    button_size[1] += 2*button_text_p
+    button_rect = pygame.Rect(SCREEN_X-button_size[0]-button_outer_p, button_outer_p, button_size[0], button_size[1])
+    button_surf = pygame.Surface(button_size)
+    button_text_surf = STATUS_FONT.render("Measure", True, COLOR_WHITE)
+    
     ######################################################
     ##              FAULT DETECTION SETUP               ##
     ######################################################
@@ -460,6 +469,11 @@ def main(cscreen = None):
                         if event.type == pygame.QUIT or (event.type == pygame.KEYDOWN and event.key == pygame.K_ESCAPE):
                             pygame.display.quit()
                             pygame.quit()
+                        if event.type == pygame.MOUSEBUTTONUP:
+                            if (button_rect.collidepoint(pygame.mouse.get_pos())):
+                                #log for 10 samples. "window capture"
+                                logging = True
+                                measurement_counter = 10 #counts down to zero
                         if event.type == pygame.KEYDOWN:
                             if event.key == pygame.K_b:
                                 detector.set_baseline(wf)#set baseline
@@ -539,6 +553,14 @@ def main(cscreen = None):
                     logging_text_rect = logging_text_surf.get_rect()
                     logging_text_rect.bottomright = param_text_rect.topright
                     
+                    #buttons: fill with color depending on context
+                    #for now just fill orange
+                    if (button_rect.collidepoint(pygame.mouse.get_pos())):
+                        button_surf.fill(COLOR_ORANGE)
+                    else:
+                        button_surf.fill(COLOR_BLUE)
+                    button_surf.blit(button_text_surf,(button_text_p,button_text_p))
+                    
                     #drawing
                     pscreen.blit(bg_surf, bg_rect)
                     pscreen.blit(term_surf, term_rect)
@@ -546,6 +568,7 @@ def main(cscreen = None):
                     pscreen.blit(param_text_surf, param_text_rect)
                     pscreen.blit(logging_text_surf, logging_text_rect)
                     pscreen.blit(array_surf, array_rect)
+                    pscreen.blit(button_surf, button_rect)
                     if (is_fault):
                         pscreen.blit(hazard_surf, hazard_rect)
                     pygame.display.flip()
