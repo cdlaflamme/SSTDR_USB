@@ -49,6 +49,7 @@ import usb
 #homegrown code
 from PcapPacketReceiver import *
 import fault_detection
+import ui_elements as ui
 
 ######################################################
 ##                   CONSTANTS                      ##
@@ -78,6 +79,19 @@ PANEL_SCALE = 1/15
 PANEL_PADDING = (50, 50)
 WIRE_WIDTH = 2
 PANEL_SCREEN_X_RATIO = 1/2+1/8
+
+######################################################
+##               STATE DEFINITION                   ##
+######################################################
+
+#struct for variables controlled by buttons, that thus need to be passable to functions out of main scope
+class MonitorState:
+    def __init__(self):
+        self.logging = False #is the system recording data?
+        self.measurement_counter = 0 #the number of measurements to take before stopping logging (if 0, never stop)
+        self.log_number = 0 #the current log number (groups like measurements by assigning all the same number)
+        self.session_number = 0 #the current session number (increases by 1 every time the software is launched & pointed at the same file)
+        self.file_has_header = False #has the system yet to write the frst data row? (if so, write the header row in addition to data)
 
 def main(cscreen = None):
     ######################################################
@@ -134,16 +148,18 @@ def main(cscreen = None):
     usb_path = "C:\\Program Files\\USBPcap\\USBPcapCMD.exe"
     usb_args = [usb_path, "-d", "\\\\.\\USBPcap" + str(arg_filter), "--devices", str(arg_address), "-o", "-"]
     
+    #create logging state
+    state = MonitorState()
+    
     #prepare output file for logging
     with open(output_path, "a+") as out_f:
         out_f.seek(0,0)
         first_char = out_f.read(1)
         if (first_char == ''):
             #file did not exist or is empty. write header row; set session/log index to 0
-            #write header row
-            out_f.write("session_number,log_number,timestamp,waveform\n")
-            session_number = 0
-            log_number = 0
+            state.file_has_header = False
+            state.session_number = 0
+            state.log_number = 0
         else:
             #file was not empty. jump almost to end, read last line, extract session index
             #"read up until start of last line" code from S.O. user Trasp: https://stackoverflow.com/questions/3346430/what-is-the-most-efficient-way-to-get-first-and-last-line-of-a-text-file/3346788
@@ -152,8 +168,9 @@ def main(cscreen = None):
                 while f.read(1) != b"\n":   # Until EOL is found...
                     f.seek(-2, os.SEEK_CUR) # ...jump back the read byte plus one more.
                 last = f.readline()         # Read last line as bytes.
-            session_number = 1+int(chr(int.from_bytes(last.split(b',')[0],'little'))) #assumes little endian, and that session index is present in column 0 (as will be standard in the future)
-            log_number = 0
+            state.file_has_header = True
+            state.session_number = 1+int(chr(int.from_bytes(last.split(b',')[0],'little'))) #assumes little endian, and that session index is present in column 0 (as will be standard in the future)
+            state.log_number = 0
 
     #set up scanning interface in curses (cscreen = curses screen)
     print("Opening scanner interface...")
@@ -295,15 +312,13 @@ def main(cscreen = None):
     term_surf.fill(TERMINAL_COLOR)
     term_rect = term_surf.get_rect()
     term_rect.bottom = SCREEN_Y
-    
-    button_text_p = 5 #padding
+
+    #define buttons
     button_outer_p = 5
-    button_size = list(STATUS_FONT.size("Measure"))
-    button_size[0] += 2*button_text_p
-    button_size[1] += 2*button_text_p
-    button_rect = pygame.Rect(SCREEN_X-button_size[0]-button_outer_p, button_outer_p, button_size[0], button_size[1])
-    button_surf = pygame.Surface(button_size)
-    button_text_surf = STATUS_FONT.render("Measure", True, COLOR_WHITE)
+    measure_b = ui.Button("Measure", STATUS_FONT, take_window_measurement)
+    measure_b.move(SCREEN_X-measure_b.size_x-button_outer_p, button_outer_p)
+    log_b = ui.Button("Toggle Logging",  STATUS_FONT, toggle_logging)
+    log_b.move(SCREEN_X-log_b.size_x-button_outer_p, button_outer_p*2+measure_b.size_y)
     
     ######################################################
     ##              FAULT DETECTION SETUP               ##
@@ -312,8 +327,6 @@ def main(cscreen = None):
     detector = fault_detection.Detector(fault_detection.METHOD_NONE)
     fault = (fault_detection.FAULT_NONE, 0)
     terminal_waveform = None
-    logging = False #if this is true, measured waveforms will be written to a file
-    measurement_counter = 0
     
     first_timestamp = None
     first_time_played = None
@@ -420,15 +433,19 @@ def main(cscreen = None):
                 elif len(wf_deque) > 0:
                     #q was empty, we have some extra time to visualize things
                     wf = np.array(wf_deque.popleft())
-                    if (logging):
+                    if (state.logging):
                         #write row with session index, log index, timestamp, and measured waveform.
-                        with open("SSTDR_waveforms.csv", "a") as f:
-                            f.write(str(session_number)+","+str(log_number)+","+str(pBlock.ts_sec + 0.000001*pBlock.ts_usec)+","+str(list(wf))[1:-1]+'\n')
-                        if measurement_counter > 0:
-                            measurement_counter -= 1
-                            if measurement_counter == 0:
-                                logging = False                    
-                                log_number += 1
+                        with open(output_path, "a") as f:
+                            #write header if needed
+                            if not state.file_has_header:
+                                state.file_has_header = True
+                                f.write("session_number,log_number,timestamp,waveform\n")
+                            f.write(str(state.session_number)+","+str(state.log_number)+","+str(pBlock.ts_sec + 0.000001*pBlock.ts_usec)+","+str(list(wf))[1:-1]+'\n')
+                        if state.measurement_counter > 0:
+                            state.measurement_counter -= 1
+                            if state.measurement_counter == 0:
+                                state.logging = False    
+                                state.log_number += 1
                     
                     ###################################################################################################################################
                     #       PYFORMULAS: visualize waveform
@@ -470,23 +487,14 @@ def main(cscreen = None):
                             pygame.display.quit()
                             pygame.quit()
                         if event.type == pygame.MOUSEBUTTONUP:
-                            if (button_rect.collidepoint(pygame.mouse.get_pos())):
-                                #log for 10 samples. "window capture"
-                                logging = True
-                                measurement_counter = 10 #counts down to zero
+                            for button in ui.Button.buttons:
+                                if (button.rect.collidepoint(pygame.mouse.get_pos())):
+                                    button.function(state)
                         if event.type == pygame.KEYDOWN:
                             if event.key == pygame.K_b:
                                 detector.set_baseline(wf)#set baseline
                             elif event.key == pygame.K_l:
-                                #START/STOP LOGGING.
-                                if logging:
-                                    #stop logging; increment log index.
-                                    log_number = log_number+1
-                                    measurement_counter = 0
-                                    logging = False
-                                else:
-                                    #start logging
-                                    logging = True
+                                toggle_logging(state)
                             elif event.key == pygame.K_a:
                                 terminal_waveform = wf #record waveform representing a disconnect at the panel terminal
                             elif event.key == pygame.K_t:
@@ -497,9 +505,9 @@ def main(cscreen = None):
                             elif event.key == pygame.K_RIGHT:
                                 detector.bls_deviation_thresh = detector.bls_deviation_thresh + 0.01
                             elif event.key == pygame.K_w:
-                                #log for 10 samples. "window capture"
-                                logging = True
-                                measurement_counter = 10 #counts down to zero
+                                take_window_measurement(state)
+                            elif event.key == pygame.K_i:
+                                state.log_number += 1
                                 
                     #per-frame logic here
                     is_fault = (fault[0] != fault_detection.FAULT_NONE)
@@ -544,22 +552,20 @@ def main(cscreen = None):
                     
                     #param_text_surf = STATUS_FONT.render("BLS deviation threshold:" + str(detector.bls_deviation_thresh), True, COLOR_WHITE)
                     #param_text_surf = STATUS_FONT.render("LPF Cutoff Frequency: 6 MHz", True, COLOR_WHITE) #TODO don't hard code this, allow for live control of cutoff frequency
-                    param_text_surf = STATUS_FONT.render("Current Log Number: "+str(log_number), True, COLOR_WHITE)
+                    param_text_surf = STATUS_FONT.render("Current Log Number: "+str(state.log_number), True, COLOR_WHITE)
                     param_text_rect = param_text_surf.get_rect()
                     param_text_rect.bottomright = (SCREEN_X-3, VISUAL_Y - BORDER_WIDTH - int(0.5*BORDER_PADDING) - 3)
                     
-                    logging_string = "Logging to 'SSTDR_waveforms.csv'..." if logging else "Not logging."
+                    logging_string = "Logging to '"+output_path+"'..." if state.logging else "Not logging."
                     logging_text_surf = STATUS_FONT.render(logging_string, True, COLOR_WHITE)
                     logging_text_rect = logging_text_surf.get_rect()
                     logging_text_rect.bottomright = param_text_rect.topright
                     
                     #buttons: fill with color depending on context
-                    #for now just fill orange
-                    if (button_rect.collidepoint(pygame.mouse.get_pos())):
-                        button_surf.fill(COLOR_ORANGE)
-                    else:
-                        button_surf.fill(COLOR_BLUE)
-                    button_surf.blit(button_text_surf,(button_text_p,button_text_p))
+                    mousepos = pygame.mouse.get_pos()
+                    for button in ui.Button.buttons:
+                        hovered = button.rect.collidepoint(mousepos)
+                        button.set_highlight(hovered)
                     
                     #drawing
                     pscreen.blit(bg_surf, bg_rect)
@@ -568,7 +574,8 @@ def main(cscreen = None):
                     pscreen.blit(param_text_surf, param_text_rect)
                     pscreen.blit(logging_text_surf, logging_text_rect)
                     pscreen.blit(array_surf, array_rect)
-                    pscreen.blit(button_surf, button_rect)
+                    for button in ui.Button.buttons:
+                        pscreen.blit(button.surf, button.rect)
                     if (is_fault):
                         pscreen.blit(hazard_surf, hazard_rect)
                     pygame.display.flip()
@@ -598,6 +605,24 @@ def main(cscreen = None):
             print('='*40)
             
     print("All done. :)")
+
+def toggle_logging(state):
+    #START/STOP LOGGING.
+    if state.logging:
+        #stop logging; increment log index.
+        state.log_number = state.log_number+1
+        state.measurement_counter = 0
+        state.logging = False
+    else:
+        #start logging
+        state.logging = True
+
+def take_window_measurement(state):
+    #log for 10 samples. "window capture"
+    if state.logging:
+        state.log_number += 1
+    state.logging = True
+    state.measurement_counter = 10 #counts down to zero
 
 def process_waveform_region(pString,cscreen = None):
     if not cscreen is None and DEBUG_VERIFICATION:
