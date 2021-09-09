@@ -142,7 +142,7 @@ def main(cscreen = None):
         
     #prepare usb sniffing
     if (arg_filter is None or arg_address is None):
-        sstdr_device = usb.core.find(idVendor=0x067b, idProduct=0x2303) #constants for our SSTDR device
+        sstdr_device = usb.core.find(idVendor=0x067b)#, idProduct=0x2303) #constants for our SSTDR device #updated to remove product id, just leave vendor: probably more device-agnostic for now
         if sstdr_device == None:
             print("Error: Could not automatically find SSTDR device. Either restart it or provide filter/address manually.")
             return
