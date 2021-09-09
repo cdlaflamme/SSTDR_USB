@@ -220,8 +220,9 @@ def main(cscreen = None):
     pygame.display.set_caption("PV Fault Scanner")
 
     #loading assets, preparing pre-baked surfaces
-    TERMINAL_FONT = pygame.font.Font(None, 40)
-    STATUS_FONT = pygame.font.Font(None, 20)
+    FONT_PATH = os.path.join("Assets", "Titillium-Regular.otf")
+    TERMINAL_FONT = pygame.font.Font(FONT_PATH, 40)
+    STATUS_FONT = pygame.font.Font(FONT_PATH, 20)
 
     panel_surf = pygame.image.load(os.path.join("Assets", "PV_panel_CharlesMJames_CC.jpg"))
     panel_surf = pygame.transform.scale(panel_surf, (int(panel_surf.get_width()*PANEL_SCALE), int(panel_surf.get_height()*PANEL_SCALE)))
