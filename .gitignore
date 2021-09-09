@@ -1,6 +1,7 @@
 #homegrown
 *.csv
 *.7z
+*.dll
 
 # Byte-compiled / optimized / DLL files
 __pycache__/

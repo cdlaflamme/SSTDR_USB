@@ -15,6 +15,8 @@ Created on Wed Oct 23 13:50:16 2019
 
 """
 DEPENDENCIES
+- USBPcap installation
+- libusb-1.0.dll (for pyusb. needs to be found in system PATH)
 - matplotlib (in conda)
 - numpy (in conda)
 - curses (in pip, use "windows-curses" on windows)
@@ -23,6 +25,8 @@ DEPENDENCIES
     - portaudio (required by pyformulas, in conda)
 - pygame (in pip)
 - pyyaml (in conda)
+- pyusb (in pip)
+
 """
 ######################################################
 ##                    IMPORTS                       ##
