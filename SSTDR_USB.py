@@ -141,11 +141,11 @@ def main(cscreen = None):
             try:
                 time_interval = int(value)
             except:
-                if value in ['h', 'hour']
+                if value in ['h', 'hour']:
                     time_interval = 3600
-                elif value in ['m', 'min', 'minute']
+                elif value in ['m', 'min', 'minute']:
                     time_interval = 60
-                elif value in ['s', 'second']
+                elif value in ['s', 'second']:
                     time_interval = 1
         #elif arg in ['-curses', '-c']:
         #    USE_CURSES = True
@@ -156,8 +156,8 @@ def main(cscreen = None):
         
     #prepare usb sniffing
     if (arg_filter is None or arg_address is None):
-        sstdr_device = usb.core.find(idVendor=0x067b, idProduct=0x2303) #constants for our SSTDR device (ARNOLD BOARD) #updated to remove product id, just leave vendor: probably more device-agnostic for now
-        #sstdr_device = usb.core.find(idVendor=7214,idProduct=5)# constants for Sam Kingston's SSTDR, (WILMA BOARD). does find correct address
+        #sstdr_device = usb.core.find(idVendor=0x067b, idProduct=0x2303) #constants for our SSTDR device (ARNOLD BOARD) #updated to remove product id, just leave vendor: probably more device-agnostic for now
+        sstdr_device = usb.core.find(idVendor=7214,idProduct=5)# constants for Sam Kingston's SSTDR, (WILMA BOARD). does find correct address
         #sstdr_device = usb.core.find(idVendor=7214,idProduct=5)# constants for Sam Kingston's SSTDR, (ARNOLD BOARD). does find correct address
         if sstdr_device == None:
             print("Error: Could not automatically find SSTDR device. Either restart it or provide filter/address manually.")
@@ -466,10 +466,10 @@ def main(cscreen = None):
                             pass
                 
                 if len(wf_deque) > 0: #either we're in file mode or the queue is empty; pop a waveform from the deque if any are ready (deque has max size, oldest entries are popped out when pushing if at max length)
-                    if time_interval == -1 or dt.datetime.now() > state.next_log_time
+                    if time_interval == -1 or dt.datetime.now() > state.next_log_time:
                         if time_interval != -1:
                             state.last_log_time = dt.datetime.now()
-                            state.next_log_time = dt.datetime.now() + dt.timedelta(seconds=time_interval):
+                            state.next_log_time = dt.datetime.now() + dt.timedelta(seconds=time_interval)
                         #q was empty, we have some extra time to visualize things
                         wf = np.array(wf_deque.popleft())
                         if (state.logging):
