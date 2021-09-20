@@ -351,12 +351,16 @@ def main(cscreen = None):
         if not file_mode:
             rec_thread = executor.submit(receiver.run)
         
-        valid_waveform_prefix = b'\xaa\xaa\xaa\xad\x00\xbf' #valid waveform regions start with this pattern
-        valid_waveform_suffix = 253 #valid waveform regions end with this pattern
+        #valid_waveform_prefix = b'\xaa\xaa\xaa\xad\x00\xbf' #valid waveform regions start with this pattern
+        valid_waveform_prefix = b'\x7F\xF2\x7F\xF3\x7F\xF1\xFE\xFE\x01\x01' #valid waveform regions start with this pattern (kingston devices)
+        #valid_waveform_suffix = 253 #valid waveform regions end with this pattern (DOES NOT OCCUR W KINGSTON DEVICES)
         
-        payloadString = b''
+        payloadString = b'' #concatenated bytes from all unprocessed packets
+        processStartIndex = 0 #the index at which the currently considered payload string starts (inclusive).
+        processEndIndex = 0 #the index at which the currently considered payload string ends (exclusive).
         byteCount = 0
-        WAVEFORM_BYTE_COUNT = 199 #every waveform region contains 199 payload bytes
+        MAX_BYTECOUNT = 512*4 #flush payloadstring after reaching a buffer of this size 
+        #WAVEFORM_BYTE_COUNT = 199 #every waveform region contains 199 payload bytes XXX LENGTH IS VARIABLE BASED ON CHIP LENGTH AND DEVICE
         
         try:
             while(True):
@@ -388,56 +392,59 @@ def main(cscreen = None):
                     
                     #if received packet may be in a waveform region of the stream:
                     #criteria: input (to host) from endpoint 3 and function == URB_FUNCTION_BULK_OR_INTERRUPT_TRANSFER
-                    if (pBlock.packet.endpoint == 0x83 and pBlock.packet.function == 0x09):
+                    #if (pBlock.packet.endpoint == 0x83 and pBlock.packet.function == 0x09): #endpoint 3 for UF's devices
+                    if (pBlock.packet.endpoint == 0x86 and pBlock.packet.function == 0x09 and pBlock.packet.info == 1 and pBlock.packet.status == 0): #endpoint 6 for kingston's devices
                         #if block has a payload:
                         p = pBlock.packet.payload
                         l = len(p)
-                        if (l > 0):
+                        if (l == 512): #all observed data seems to come in blocks of 512
                             payloadString = payloadString + p
                             byteCount = byteCount + l
-                            if ((l==1 and p==0xaa) or (l>1 and p[0] == 0xaa) or (b'\xaa' in p)):
-                                if not cscreen is None and DEBUG_VERIFICATION:
+                            if ((l==1 and p==valid_waveform_prefix[0]) or (l>1 and p[0] == valid_waveform_prefix[0]) or (valid_waveform_prefix[0] in p)):
+                                if cscreen is not None and DEBUG_VERIFICATION:
                                     cscreen.addstr(13,0,"Received start of prefix at timestamp: " + str(pBlock.ts_sec + 0.000001*pBlock.ts_usec))
                                     cscreen.addstr(14,4,"Starting payload: " + str(p))
                                     cscreen.addstr(15,4,"New payload string: " + str(payloadString))
-                                    cscreen.refresh()
- 
-                            #for the first few bytes, compare it to a prefix pattern that all valid waveforms start with.
-                            if (VERIFY_WAVEFORMS and byteCount <= len(valid_waveform_prefix)):
-                                #TODO: currently assumes prefix bytes arrive one at a time (ie not in the same payload). this is OK the vast majority of the time.
-                                if (p[0] != valid_waveform_prefix[byteCount-1]):
-                                    #the current waveform is not valid. throw it out.
+                                    
+                                #process every byte in the received payload. not sure what better substitute exists.
+                                #for the first few bytes, compare it to a prefix pattern that all valid waveforms start with.
+                                if (VERIFY_WAVEFORMS and byteCount <= len(valid_waveform_prefix)):
+                                    if (p[0] != valid_waveform_prefix[byteCount-1]):
+                                        #the current waveform is not valid. throw it out.
+                                        if not(cscreen is None):
+                                            cscreen.addstr(10,0,"Invalid waveform at timestamp: " + str(pBlock.ts_sec + 0.000001*pBlock.ts_usec))
+                                            cscreen.addstr(11,4,"Prefix string: " + str(payloadString) + "; Byte count: " + str(byteCount))
+                                            if (byteCount > 1):
+                                                cscreen.addstr(12,4,"Last long invalid prefix: "+ str(payloadString) + "; Byte count: " + str(byteCount))
+                                            cscreen.refresh()
+                                        else:
+                                            print("Invalid waveform at timestamp: " + str(pBlock.ts_sec + 0.000001*pBlock.ts_usec))
+                                            print("Prefix string: " + str(payloadString)+'\n')
+                                        if ((l==1 and p==0xaa) or (l>1 and p[0] == 0xaa) or (b'\xaa' in p)): #if the byte that ruined everything may be the start of a valid region, keep it
+                                            payloadString = b'' + p
+                                            byteCount = l
+                                        else:
+                                            payloadString = b''
+                                            byteCount = 0
+                                elif (byteCount >= WAVEFORM_BYTE_COUNT):
+                                    #perform processing on raw waveform
+                                    wf = process_waveform_region(payloadString,cscreen)
+                                    wf_deque.append(wf)
                                     if not(cscreen is None):
-                                        cscreen.addstr(10,0,"Invalid waveform at timestamp: " + str(pBlock.ts_sec + 0.000001*pBlock.ts_usec))
-                                        cscreen.addstr(11,4,"Prefix string: " + str(payloadString) + "; Byte count: " + str(byteCount))
-                                        if (byteCount > 1):
-                                            cscreen.addstr(12,4,"Last long invalid prefix: "+ str(payloadString) + "; Byte count: " + str(byteCount))
-                                        cscreen.refresh()
-                                    else:
-                                        print("Invalid waveform at timestamp: " + str(pBlock.ts_sec + 0.000001*pBlock.ts_usec))
-                                        print("Prefix string: " + str(payloadString)+'\n')
-                                    if ((l==1 and p==0xaa) or (l>1 and p[0] == 0xaa) or (b'\xaa' in p)): #if the byte that ruined everything may be the start of a valid region, keep it
-                                        payloadString = b'' + p
-                                        byteCount = l
-                                    else:
-                                        payloadString = b''
-                                        byteCount = 0
-                            elif (byteCount >= WAVEFORM_BYTE_COUNT):
-                                #perform processing on raw waveform
-                                wf = process_waveform_region(payloadString,cscreen)
-                                wf_deque.append(wf)
-                                if not(cscreen is None):
-                                    #show that we've received a waveform
-                                    cscreen.addstr(7,0,"Received waveform at timestamp: " + str(pBlock.ts_sec + 0.000001*pBlock.ts_usec))
-                                    cscreen.refresh()                                                     
-                                #prepare to receive next waveform region                            
-                                payloadString = b''
-                                byteCount = 0
-                    elif (byteCount > 0):
+                                        #show that we've received a waveform
+                                        cscreen.addstr(7,0,"Received waveform at timestamp: " + str(pBlock.ts_sec + 0.000001*pBlock.ts_usec))
+                                        cscreen.refresh()                                                     
+                                    #prepare to receive next waveform region                            
+                                    payloadString = b''
+                                    byteCount = 0
+
+                                    cscreen.refresh() 
+                    elif (byteCount > 0): #if we received a payload not of length 512, ignore it and flush the buffer :(
                         payloadString = b''
+                        processingIndex = 0
                         byteCount = 0
                 
-                elif len(wf_deque) > 0:
+                if len(wf_deque) > 0: #either we're in file mode or the queue is empty; pop a waveform from the deque if any are ready (deque has max size, oldest entries are popped out when pushing if at max length)
                     #q was empty, we have some extra time to visualize things
                     wf = np.array(wf_deque.popleft())
                     if (state.logging):
