@@ -359,7 +359,7 @@ def main(cscreen = None):
         processStartIndex = 0 #the index at which the currently considered payload string starts (inclusive).
         processEndIndex = 0 #the index at which the currently considered payload string ends (exclusive).
         byteCount = 0
-        MAX_BYTECOUNT = 512*4 #flush payloadstring after reaching a buffer of this size 
+        MAX_BYTECOUNT = 512*4 #flush payloadString after reaching a buffer of this size 
         #WAVEFORM_BYTE_COUNT = 199 #every waveform region contains 199 payload bytes XXX LENGTH IS VARIABLE BASED ON CHIP LENGTH AND DEVICE
         
         try:
@@ -398,51 +398,50 @@ def main(cscreen = None):
                         p = pBlock.packet.payload
                         l = len(p)
                         if (l == 512): #all observed data seems to come in blocks of 512
-                            payloadString = payloadString + p
-                            byteCount = byteCount + l
-                            if ((l==1 and p==valid_waveform_prefix[0]) or (l>1 and p[0] == valid_waveform_prefix[0]) or (valid_waveform_prefix[0] in p)):
-                                if cscreen is not None and DEBUG_VERIFICATION:
-                                    cscreen.addstr(13,0,"Received start of prefix at timestamp: " + str(pBlock.ts_sec + 0.000001*pBlock.ts_usec))
-                                    cscreen.addstr(14,4,"Starting payload: " + str(p))
-                                    cscreen.addstr(15,4,"New payload string: " + str(payloadString))
-                                    
-                                #process every byte in the received payload. not sure what better substitute exists.
-                                #for the first few bytes, compare it to a prefix pattern that all valid waveforms start with.
-                                if (VERIFY_WAVEFORMS and byteCount <= len(valid_waveform_prefix)):
-                                    if (p[0] != valid_waveform_prefix[byteCount-1]):
-                                        #the current waveform is not valid. throw it out.
-                                        if not(cscreen is None):
-                                            cscreen.addstr(10,0,"Invalid waveform at timestamp: " + str(pBlock.ts_sec + 0.000001*pBlock.ts_usec))
-                                            cscreen.addstr(11,4,"Prefix string: " + str(payloadString) + "; Byte count: " + str(byteCount))
-                                            if (byteCount > 1):
-                                                cscreen.addstr(12,4,"Last long invalid prefix: "+ str(payloadString) + "; Byte count: " + str(byteCount))
-                                            cscreen.refresh()
-                                        else:
-                                            print("Invalid waveform at timestamp: " + str(pBlock.ts_sec + 0.000001*pBlock.ts_usec))
-                                            print("Prefix string: " + str(payloadString)+'\n')
-                                        if ((l==1 and p==0xaa) or (l>1 and p[0] == 0xaa) or (b'\xaa' in p)): #if the byte that ruined everything may be the start of a valid region, keep it
-                                            payloadString = b'' + p
-                                            byteCount = l
-                                        else:
-                                            payloadString = b''
-                                            byteCount = 0
-                                elif (byteCount >= WAVEFORM_BYTE_COUNT):
-                                    #perform processing on raw waveform
-                                    wf = process_waveform_region(payloadString,cscreen)
-                                    wf_deque.append(wf)
-                                    if not(cscreen is None):
-                                        #show that we've received a waveform
-                                        cscreen.addstr(7,0,"Received waveform at timestamp: " + str(pBlock.ts_sec + 0.000001*pBlock.ts_usec))
-                                        cscreen.refresh()                                                     
-                                    #prepare to receive next waveform region                            
-                                    payloadString = b''
-                                    byteCount = 0
-
-                                    cscreen.refresh() 
+                            if byteCount + l > MAX_BYTECOUNT:
+                                #if buffer overflowing, flush
+                                payloadString = p
+                                byteCount = l
+                                processStartIndex = 0
+                                processEndIndex = 0
+                            else:
+                                #else, append payload to buffer
+                                payloadString = payloadString + p
+                                byteCount = byteCount + l
+                                #if ((l==1 and p==valid_waveform_prefix[0]) or (l>1 and p[0] == valid_waveform_prefix[0]) or (valid_waveform_prefix[0] in p)):
+                                #    if cscreen is not None and DEBUG_VERIFICATION:
+                                #        cscreen.addstr(13,0,"Received start of prefix at timestamp: " + str(pBlock.ts_sec + 0.000001*pBlock.ts_usec))
+                                #        cscreen.addstr(14,4,"Starting payload: " + str(p))
+                                #        cscreen.addstr(15,4,"New payload string: " + str(payloadString))
                     elif (byteCount > 0): #if we received a payload not of length 512, ignore it and flush the buffer :(
                         payloadString = b''
-                        processingIndex = 0
+                        processStartIndex = 0
+                        processEndIndex = 0
                         byteCount = 0
+                
+                elif not file_mode and byteCount > 0:
+                    #data is waiting in buffer, and we have time to process it
+                    #check if we've started processing a waveform yet
+                    if processEndIndex == 0: #if we haven't started processing a waveform yet
+                        prefixStartIndex = payloadString.find(valid_waveform_prefix)
+                        if prefixStartIndex != -1:
+                            #waveform prefix found.
+                            processStartIndex = prefixStartIndex
+                            processEndIndex = processStartIndex + len(valid_waveform_prefix)
+                    #if we've started a waveform, check if we can finish one
+                    if processEndIndex > 0:
+                        nextPrefixIndex = payloadString[processEndIndex+1:].find(valid_waveform_prefix)
+                        if nextPrefixIndex != -1:
+                            #we found the next waveform's prefix!
+                            #prepare this waveform
+                            wf_bytes = 
+                            #push this waveform into the deque.
+                            #prepare to process the next waveform
+                            processStartIndex = nextPrefixIndex
+                            processEndIndex = nextPrefixIndex + len(valid_waveform_prefix)
+                        else:
+                            #no end to this waveform was found. sit on it.
+                            pass
                 
                 if len(wf_deque) > 0: #either we're in file mode or the queue is empty; pop a waveform from the deque if any are ready (deque has max size, oldest entries are popped out when pushing if at max length)
                     #q was empty, we have some extra time to visualize things
