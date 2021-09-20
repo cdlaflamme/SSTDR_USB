@@ -26,7 +26,7 @@ DEPENDENCIES
 - pygame (in pip)
 - pyyaml (in conda)
 - pyusb (in pip)
-
+- scipy (conda)
 """
 ######################################################
 ##                    IMPORTS                       ##
