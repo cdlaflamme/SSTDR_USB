@@ -466,20 +466,22 @@ def main(cscreen = None):
                             pass
                 
                 if len(wf_deque) > 0: #either we're in file mode or the queue is empty; pop a waveform from the deque if any are ready (deque has max size, oldest entries are popped out when pushing if at max length)
+                    time_log = False
                     if time_interval == -1 or dt.datetime.now() > state.next_log_time
                         if time_interval != -1:
+                            time_log = True
                             state.last_log_time = dt.datetime.now()
                             state.next_log_time = dt.datetime.now() + dt.timedelta(seconds=time_interval):
                         #q was empty, we have some extra time to visualize things
                         wf = np.array(wf_deque.popleft())
-                        if (state.logging):
+                        if (state.logging or time_log):
                             #write row with session index, log index, timestamp, and measured waveform.
                             with open(output_path, "a") as f:
                                 #write header if needed
                                 if not state.file_has_header:
                                     state.file_has_header = True
                                     f.write("session_number,log_number,timestamp,waveform\n")
-                                f.write(str(state.session_number)+","+str(state.log_number)+","+str(pBlock.ts_sec + 0.000001*pBlock.ts_usec)+","+str(list(wf))+'\n')
+                                f.write(str(state.session_number)+","+str(state.log_number)+","+str(pBlock.ts_sec + 0.000001*pBlock.ts_usec)+","+str(list(wf))[1:-1]+'\n') #1:-1 for brackets
                             if state.measurement_counter > 0:
                                 state.measurement_counter -= 1
                                 if state.measurement_counter == 0:
