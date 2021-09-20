@@ -433,12 +433,20 @@ def main(cscreen = None):
                         nextPrefixIndex = payloadString[processEndIndex+1:].find(valid_waveform_prefix)
                         if nextPrefixIndex != -1:
                             #we found the next waveform's prefix!
+                            processEndIndex = nextPrefixIndex
                             #prepare this waveform
-                            wf_bytes = 
+                            wf = process_waveform_region(payloadString[processStartIndex:processEndIndex],cscreen)
                             #push this waveform into the deque.
+                            wf_deque.append(wf)
+                            if not(cscreen is None):
+                                #show that we've received a waveform
+                                cscreen.addstr(7,0,"Received waveform at timestamp: " + str(pBlock.ts_sec + 0.000001*pBlock.ts_usec))
+                                cscreen.refresh()
                             #prepare to process the next waveform
-                            processStartIndex = nextPrefixIndex
-                            processEndIndex = nextPrefixIndex + len(valid_waveform_prefix)
+                            payloadString = payloadString[processEndIndex:]
+                            byteCount = len(payloadString)
+                            processStartIndex = 0
+                            processEndIndex = processStartIndex + len(valid_waveform_prefix)
                         else:
                             #no end to this waveform was found. sit on it.
                             pass
@@ -639,24 +647,25 @@ def take_window_measurement(state):
 
 def process_waveform_region(pString,cscreen = None):
     if not cscreen is None and DEBUG_VERIFICATION:
-        cscreen.addstr(8,4,"Waveform prefix: "+str(pString[0:6]))
+        cscreen.addstr(8,4,"Waveform prefix: "+str(pString[0:11]))
         cscreen.refresh()
     elif DEBUG_VERIFICATION:
-        print("Prefix: "+str(pString[0:6])+'\n')
-    waveform = convert_waveform_region(pString)[6:-1]
+        print("Prefix: "+str(pString[0:11])+'\n')
+    waveform_region = pString[11:]
+    waveform = convert_waveform_region(waveform_region)
     #we can do anything with this waveform
     return waveform
 
 def convert_waveform_region(pString):
-    """takes a bytestring of len 199, converts it into little-endian int16s"""
-    N = 199
+    """takes a bytestring of arbitrary length, converts it into big-endian int16s. ignores trailing odd bytes"""
+    N = len(pString)
     Nh = int(N/2)
     concat = [0]*Nh
     for i in range(Nh):
-        v1 = pString[2*i] #indexing with a scalar returns an integer
-        v2 = pString[2*i+1]
-        #combine , little endian
-        value = ((v2<<8)+v1)
+        vl = pString[2*i] #indexing with a scalar returns an integer
+        vr = pString[2*i+1]
+        #combine , big endian
+        value = ((vl<<8)+vr)
         #convert to signed integer
         if (value & 0x8000 != 0):
             value = value - 2**16
