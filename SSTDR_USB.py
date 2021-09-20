@@ -471,6 +471,7 @@ def main(cscreen = None):
                     ###################################################################################################################################
                     #       PYFORMULAS: visualize waveform
                     ###################################################################################################################################
+                    """
                     #some code from https://stackoverflow.com/questions/40126176/fast-live-plotting-in-matplotlib-pyplot
                     plt.clf()
                     plt.xlabel("Distance (feet)")
@@ -497,7 +498,7 @@ def main(cscreen = None):
                     image = np.frombuffer(fig.canvas.tostring_rgb(), dtype=np.uint8)
                     image = image.reshape(fig.canvas.get_width_height()[::-1] + (3,))
                     plot_window.update(image)
-                    
+                    """
                     ###################################################################################################################################
                     #       PYGAME: fault visualization & event queue
                     ###################################################################################################################################

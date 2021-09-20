@@ -186,6 +186,7 @@ class Detector:
     #returns a tuple: (fault type, distance to fault (in feet))
     def detect_faults(self, waveform):
         fault = (FAULT_NONE, 0)
+        return fault; #XXX hack to skip interpolation code
         if self.raw_baseline is None:
             self.last_processed_waveform = spline_interpolate(waveform)
             return fault
