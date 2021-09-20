@@ -39,13 +39,13 @@ from concurrent.futures import ThreadPoolExecutor
 import traceback
 import threading
 import time
+from collections import deque
 
 #python libraries
 import numpy as np
 import curses
 import matplotlib.pyplot as plt
 import pyformulas as pf
-from collections import deque
 import pygame
 import yaml
 import usb
@@ -461,7 +461,7 @@ def main(cscreen = None):
                             if not state.file_has_header:
                                 state.file_has_header = True
                                 f.write("session_number,log_number,timestamp,waveform\n")
-                            f.write(str(state.session_number)+","+str(state.log_number)+","+str(pBlock.ts_sec + 0.000001*pBlock.ts_usec)+","+str(list(wf))[1:-1]+'\n')
+                            f.write(str(state.session_number)+","+str(state.log_number)+","+str(pBlock.ts_sec + 0.000001*pBlock.ts_usec)+","+str(list(wf))+'\n')
                         if state.measurement_counter > 0:
                             state.measurement_counter -= 1
                             if state.measurement_counter == 0:
@@ -646,12 +646,13 @@ def take_window_measurement(state):
     state.measurement_counter = 10 #counts down to zero
 
 def process_waveform_region(pString,cscreen = None):
+    prefix_len = 20 #bytes
     if not cscreen is None and DEBUG_VERIFICATION:
-        cscreen.addstr(8,4,"Waveform prefix: "+str(pString[0:11]))
+        cscreen.addstr(8,4,"Waveform prefix: "+str(pString[0:prefix_len]))
         cscreen.refresh()
     elif DEBUG_VERIFICATION:
-        print("Prefix: "+str(pString[0:11])+'\n')
-    waveform_region = pString[11:]
+        print("Prefix: "+str(pString[0:prefix_len])+'\n')
+    waveform_region = pString[prefix_len:]
     waveform = convert_waveform_region(waveform_region)
     #we can do anything with this waveform
     return waveform
