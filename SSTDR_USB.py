@@ -49,6 +49,7 @@ import pyformulas as pf
 import pygame
 import yaml
 import usb
+import datetime as dt
 
 #homegrown code
 from PcapPacketReceiver import *
@@ -96,7 +97,9 @@ class MonitorState:
         self.log_number = 0 #the current log number (groups like measurements by assigning all the same number)
         self.session_number = 0 #the current session number (increases by 1 every time the software is launched & pointed at the same file)
         self.file_has_header = False #has the system yet to write the frst data row? (if so, write the header row in addition to data)
-
+        self.last_log_time = datetime.now()
+        self.next_log_time = datetime.now()
+        
 def main(cscreen = None):
     ######################################################
     ##                    STARTUP                       ##
@@ -109,6 +112,7 @@ def main(cscreen = None):
     file_mode = False
     output_path = "SSTDR_waveforms.csv"
     yaml_path = 'default.yaml'
+    time_interval = -1
     
     #read cmd line arguments
     valid_args = ['-yaml', 'y', '-filter', '-f', '-address', '-a', '-file', '-out', '-o', '-curses', '-c', '-no-curses', '-nc']
@@ -133,6 +137,16 @@ def main(cscreen = None):
             input_path = value
         elif arg in ['-out', '-o']:
             output_path = value
+        elif arg in ['-interval', '-i', '-t']:
+            try:
+                time_interval = int(value)
+            except:
+                if value in ['h', 'hour']
+                    time_interval = 3600
+                elif value in ['m', 'min', 'minute']
+                    time_interval = 60
+                elif value in ['s', 'second']
+                    time_interval = 1
         #elif arg in ['-curses', '-c']:
         #    USE_CURSES = True
         #    skip = False
@@ -452,21 +466,25 @@ def main(cscreen = None):
                             pass
                 
                 if len(wf_deque) > 0: #either we're in file mode or the queue is empty; pop a waveform from the deque if any are ready (deque has max size, oldest entries are popped out when pushing if at max length)
-                    #q was empty, we have some extra time to visualize things
-                    wf = np.array(wf_deque.popleft())
-                    if (state.logging):
-                        #write row with session index, log index, timestamp, and measured waveform.
-                        with open(output_path, "a") as f:
-                            #write header if needed
-                            if not state.file_has_header:
-                                state.file_has_header = True
-                                f.write("session_number,log_number,timestamp,waveform\n")
-                            f.write(str(state.session_number)+","+str(state.log_number)+","+str(pBlock.ts_sec + 0.000001*pBlock.ts_usec)+","+str(list(wf))+'\n')
-                        if state.measurement_counter > 0:
-                            state.measurement_counter -= 1
-                            if state.measurement_counter == 0:
-                                state.logging = False    
-                                state.log_number += 1
+                    if time_interval == -1 or dt.datetime.now() > state.next_log_time
+                        if time_interval != -1:
+                            state.last_log_time = dt.datetime.now()
+                            state.next_log_time = dt.datetime.now() + dt.timedelta(seconds=time_interval):
+                        #q was empty, we have some extra time to visualize things
+                        wf = np.array(wf_deque.popleft())
+                        if (state.logging):
+                            #write row with session index, log index, timestamp, and measured waveform.
+                            with open(output_path, "a") as f:
+                                #write header if needed
+                                if not state.file_has_header:
+                                    state.file_has_header = True
+                                    f.write("session_number,log_number,timestamp,waveform\n")
+                                f.write(str(state.session_number)+","+str(state.log_number)+","+str(pBlock.ts_sec + 0.000001*pBlock.ts_usec)+","+str(list(wf))+'\n')
+                            if state.measurement_counter > 0:
+                                state.measurement_counter -= 1
+                                if state.measurement_counter == 0:
+                                    state.logging = False    
+                                    state.log_number += 1
                     
                     ###################################################################################################################################
                     #       PYFORMULAS: visualize waveform
@@ -582,6 +600,12 @@ def main(cscreen = None):
                     logging_text_rect = logging_text_surf.get_rect()
                     logging_text_rect.bottomright = param_text_rect.topright
                     
+                    if time_interval != -1:
+                        timer_string = "Next log time: "+state.next_log_time.strftime("%H:%M:%S")
+                        timer_text_surf = STATUS_FONT.render(timer_string, True, COLOR_WHITE)
+                        timer_text_rect = timer_text_surf.get_rect()
+                        timer_text_rect.bottomright = logging_text_rect.topright
+                    
                     #buttons: fill with color depending on context
                     mousepos = pygame.mouse.get_pos()
                     for button in ui.Button.buttons:
@@ -594,6 +618,8 @@ def main(cscreen = None):
                     pscreen.blit(fault_text_surf, fault_text_rect)
                     pscreen.blit(param_text_surf, param_text_rect)
                     pscreen.blit(logging_text_surf, logging_text_rect)
+                    if time_interval != -1:
+                        pscreen.blit(timer_text_surf, timer_text_rect)
                     pscreen.blit(array_surf, array_rect)
                     for button in ui.Button.buttons:
                         pscreen.blit(button.surf, button.rect)
