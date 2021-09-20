@@ -430,10 +430,10 @@ def main(cscreen = None):
                             processEndIndex = processStartIndex + len(valid_waveform_prefix)
                     #if we've started a waveform, check if we can finish one
                     if processEndIndex > 0:
-                        nextPrefixIndex = payloadString[processEndIndex+1:].find(valid_waveform_prefix)
+                        nextPrefixIndex = payloadString[processEndIndex:].find(valid_waveform_prefix)
                         if nextPrefixIndex != -1:
                             #we found the next waveform's prefix!
-                            processEndIndex = nextPrefixIndex
+                            processEndIndex = nextPrefixIndex + processEndIndex
                             #prepare this waveform
                             wf = process_waveform_region(payloadString[processStartIndex:processEndIndex],cscreen)
                             #push this waveform into the deque.
