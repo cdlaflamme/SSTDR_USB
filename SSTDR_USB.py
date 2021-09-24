@@ -97,8 +97,8 @@ class MonitorState:
         self.log_number = 0 #the current log number (groups like measurements by assigning all the same number)
         self.session_number = 0 #the current session number (increases by 1 every time the software is launched & pointed at the same file)
         self.file_has_header = False #has the system yet to write the frst data row? (if so, write the header row in addition to data)
-        self.last_log_time = datetime.now()
-        self.next_log_time = datetime.now()
+        self.last_log_time = dt.datetime.now()
+        self.next_log_time = dt.datetime.now()
         
 def main(cscreen = None):
     ######################################################
