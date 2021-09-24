@@ -97,8 +97,8 @@ class MonitorState:
         self.log_number = 0 #the current log number (groups like measurements by assigning all the same number)
         self.session_number = 0 #the current session number (increases by 1 every time the software is launched & pointed at the same file)
         self.file_has_header = False #has the system yet to write the frst data row? (if so, write the header row in addition to data)
-        self.last_log_time = datetime.now()
-        self.next_log_time = datetime.now()
+        self.last_log_time = dt.datetime.now()
+        self.next_log_time = dt.datetime.now()
         
 def main(cscreen = None):
     ######################################################
@@ -141,11 +141,11 @@ def main(cscreen = None):
             try:
                 time_interval = int(value)
             except:
-                if value in ['h', 'hour']
+                if value in ['h', 'hour']:
                     time_interval = 3600
-                elif value in ['m', 'min', 'minute']
+                elif value in ['m', 'min', 'minute']:
                     time_interval = 60
-                elif value in ['s', 'second']
+                elif value in ['s', 'second']:
                     time_interval = 1
         #elif arg in ['-curses', '-c']:
         #    USE_CURSES = True
@@ -467,11 +467,11 @@ def main(cscreen = None):
                 
                 if len(wf_deque) > 0: #either we're in file mode or the queue is empty; pop a waveform from the deque if any are ready (deque has max size, oldest entries are popped out when pushing if at max length)
                     time_log = False
-                    if time_interval == -1 or dt.datetime.now() > state.next_log_time
+                    if time_interval == -1 or dt.datetime.now() > state.next_log_time:
                         if time_interval != -1:
                             time_log = True
                             state.last_log_time = dt.datetime.now()
-                            state.next_log_time = dt.datetime.now() + dt.timedelta(seconds=time_interval):
+                            state.next_log_time = dt.datetime.now() + dt.timedelta(seconds=time_interval)
                         #q was empty, we have some extra time to visualize things
                         wf = np.array(wf_deque.popleft())
                         if (state.logging or time_log):
