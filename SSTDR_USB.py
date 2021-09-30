@@ -115,7 +115,7 @@ def main(cscreen = None):
     time_interval = -1
     
     #read cmd line arguments
-    valid_args = ['-yaml', 'y', '-filter', '-f', '-address', '-a', '-file', '-out', '-o', '-curses', '-c', '-no-curses', '-nc']
+    valid_args = ['-yaml', 'y', '-filter', '-f', '-address', '-a', '-file', '-out', '-o', '-curses', '-c', '-no-curses', '-nc', '-interval', '-i', '-t']
     args = {}
     skip = False
     for i,arg in enumerate(sys.argv):
