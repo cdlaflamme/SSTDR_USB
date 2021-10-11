@@ -86,6 +86,13 @@ WIRE_WIDTH = 2
 PANEL_SCREEN_X_RATIO = 1/2+1/8
 
 ######################################################
+##                 DEVICE SUPPORT                   ##
+######################################################
+
+DEVICE_PROTOTYPE = 0 #such as the UF lab's PCB SSTDR
+DEVICE_COMMERCIAL = 1 #such as the commercial devices available at the U and livewire
+
+######################################################
 ##               STATE DEFINITION                   ##
 ######################################################
 
@@ -99,6 +106,7 @@ class MonitorState:
         self.file_has_header = False #has the system yet to write the frst data row? (if so, write the header row in addition to data)
         self.last_log_time = dt.datetime.now()
         self.next_log_time = dt.datetime.now()
+        self.device_class = None
         
 def main(cscreen = None):
     ######################################################
@@ -155,11 +163,20 @@ def main(cscreen = None):
         #    skip = False
         
     #prepare usb sniffing
+    #create logging state
+    state = MonitorState()
     if (arg_filter is None or arg_address is None):
-        #sstdr_device = usb.core.find(idVendor=0x067b, idProduct=0x2303) #constants for our SSTDR device (ARNOLD BOARD) #updated to remove product id, just leave vendor: probably more device-agnostic for now
-        sstdr_device = usb.core.find(idVendor=7214,idProduct=5)# constants for Sam Kingston's SSTDR, (WILMA BOARD). does find correct address
-        #sstdr_device = usb.core.find(idVendor=7214,idProduct=5)# constants for Sam Kingston's SSTDR, (ARNOLD BOARD). does find correct address
-        if sstdr_device == None:
+        #auto-detect an SSTDR device. depending on the device, determine the device class (which influences data extraction)
+        #try to find prototype device
+        sstdr_device = usb.core.find(idVendor=0x067b, idProduct=0x2303)
+        if sstdr_device is not None:
+            state.device_class = DEVICE_PROTOTYPE
+        else:
+            #try to find commercial device
+            sstdr_device = usb.core.find(idVendor=7214,idProduct=5)# constants for devices tested with Sam Kingston. (WILMA & ARNOLD)
+            if sstdr_device is not None:
+                state.device_class = DEVICE_COMMERCIAL
+        if sstdr_device is None:
             print("Error: Could not automatically find SSTDR device. Either restart it or provide filter/address manually.")
             return
         arg_filter  = sstdr_device.bus
@@ -168,8 +185,6 @@ def main(cscreen = None):
     usb_path = "C:\\Program Files\\USBPcap\\USBPcapCMD.exe"
     usb_args = [usb_path, "-d", "\\\\.\\USBPcap" + str(arg_filter), "--devices", str(arg_address), "-o", "-"]
     
-    #create logging state
-    state = MonitorState()
     
     #prepare output file for logging
     with open(output_path, "a+") as out_f:
@@ -365,9 +380,12 @@ def main(cscreen = None):
         if not file_mode:
             rec_thread = executor.submit(receiver.run)
         
-        #valid_waveform_prefix = b'\xaa\xaa\xaa\xad\x00\xbf' #valid waveform regions start with this pattern
-        valid_waveform_prefix = b'\x7F\xF2\x7F\xF3\x7F\xF1\xFE\xFE\x01\x01' #valid waveform regions start with this pattern (kingston devices)
-        #valid_waveform_suffix = 253 #valid waveform regions end with this pattern (DOES NOT OCCUR W KINGSTON DEVICES)
+        if state.device_class == DEVICE_PROTOTYPE:
+            valid_waveform_prefix = b'\xaa\xaa\xaa\xad\x00\xbf' #valid waveform regions start with this pattern
+            device_endpoint = 0x83
+        else:
+            valid_waveform_prefix = b'\x7F\xF2\x7F\xF3\x7F\xF1\xFE\xFE\x01\x01' #valid waveform regions start with this pattern (kingston devices)
+            device_endpoint = 0x86
         
         payloadString = b'' #concatenated bytes from all unprocessed packets
         processStartIndex = 0 #the index at which the currently considered payload string starts (inclusive).
@@ -405,13 +423,12 @@ def main(cscreen = None):
                         #cscreen.refresh()
                     
                     #if received packet may be in a waveform region of the stream:
-                    #criteria: input (to host) from endpoint 3 and function == URB_FUNCTION_BULK_OR_INTERRUPT_TRANSFER
-                    #if (pBlock.packet.endpoint == 0x83 and pBlock.packet.function == 0x09): #endpoint 3 for UF's devices
-                    if (pBlock.packet.endpoint == 0x86 and pBlock.packet.function == 0x09 and pBlock.packet.info == 1 and pBlock.packet.status == 0): #endpoint 6 for kingston's devices
+                    #criteria: input (to host) from device endpoint and function == URB_FUNCTION_BULK_OR_INTERRUPT_TRANSFER
+                    if (pBlock.packet.endpoint == device_endpoint and pBlock.packet.function == 0x09 and pBlock.packet.info == 1 and pBlock.packet.status == 0):
                         #if block has a payload:
                         p = pBlock.packet.payload
                         l = len(p)
-                        if (l == 512): #all observed data seems to come in blocks of 512
+                        if (state.device_class == DEVICE_PROTOTYPE or (state.device_class == DEVICE_COMMERCIAL and l == 512)): #all data seems to come in blocks of 512 for comm. devices
                             if byteCount + l > MAX_BYTECOUNT:
                                 #if buffer overflowing, flush
                                 payloadString = p
@@ -675,6 +692,7 @@ def take_window_measurement(state):
     state.measurement_counter = 10 #counts down to zero
 
 def process_waveform_region(pString,cscreen = None):
+    #TODO alter this depending on the device class
     prefix_len = 20 #bytes
     if not cscreen is None and DEBUG_VERIFICATION:
         cscreen.addstr(8,4,"Waveform prefix: "+str(pString[0:prefix_len]))
