@@ -61,7 +61,9 @@ import ui_elements as ui
 ######################################################
 USE_CURSES = True
 VERIFY_WAVEFORMS = True
-DEBUG_VERIFICATION = False
+DEBUG_VERIFICATION = True
+DEBUG_LOG = True
+VERBOSE_LOGGING = False
 
 SCREEN_SIZE = SCREEN_X, SCREEN_Y = 800, 480
 TERMINAL_Y = 100
@@ -121,6 +123,7 @@ def main(cscreen = None):
     output_path = "SSTDR_waveforms.csv"
     yaml_path = 'default.yaml'
     time_interval = -1
+    debug_log_path = 'log.txt'
     
     #read cmd line arguments
     valid_args = ['-yaml', 'y', '-filter', '-f', '-address', '-a', '-file', '-out', '-o', '-curses', '-c', '-no-curses', '-nc', '-interval', '-i', '-t']
@@ -161,7 +164,16 @@ def main(cscreen = None):
         #elif arg in ['-no-curses', '-nc']:
         #    USE_CURSES = False
         #    skip = False
-        
+    
+    #repotr session start & info in log
+    if DEBUG_LOG:
+        debug_log(debug_log_path, "===========================================================================")
+        debug_log(debug_log_path, "STARTING SESSION")
+        debug_log(debug_log_path, "===========================================================================")
+        debug_log(debug_log_path, "Yaml path: "+yaml_path)
+        debug_log(debug_log_path, "Data input file: "+("N/A" if not file_mode else input_path))
+        debug_log(debug_log_path, "Output file: "+output_path)
+        debug_log(debug_log_path, "Time interval: "+str(time_interval))
     #prepare usb sniffing
     #create logging state
     state = MonitorState()
@@ -185,6 +197,9 @@ def main(cscreen = None):
     usb_path = "C:\\Program Files\\USBPcap\\USBPcapCMD.exe"
     usb_args = [usb_path, "-d", "\\\\.\\USBPcap" + str(arg_filter), "--devices", str(arg_address), "-o", "-"]
     
+    if DEBUG_LOG:
+        debug_log(debug_log_path, "Opened device: Filter "+str(arg_filter)+", Address "+str(arg_address))
+        debug_log(debug_log_path, "Device Class: "+str(state.device_class))
     
     #prepare output file for logging
     with open(output_path, "a+") as out_f:
@@ -392,7 +407,6 @@ def main(cscreen = None):
         processEndIndex = 0 #the index at which the currently considered payload string ends (exclusive).
         byteCount = 0
         MAX_BYTECOUNT = 512*4 #flush payloadString after reaching a buffer of this size 
-        #WAVEFORM_BYTE_COUNT = 199 #every waveform region contains 199 payload bytes XXX LENGTH IS VARIABLE BASED ON CHIP LENGTH AND DEVICE
         
         try:
             while(True):
@@ -435,20 +449,39 @@ def main(cscreen = None):
                                 byteCount = l
                                 processStartIndex = 0
                                 processEndIndex = 0
+                                if DEBUG_LOG and VERBOSE_LOGGING:
+                                    debug_log(debug_log_path,"Buffer overfull, flushing buffer!")
                             else:
                                 #else, append payload to buffer
                                 payloadString = payloadString + p
                                 byteCount = byteCount + l
-                                #if ((l==1 and p==valid_waveform_prefix[0]) or (l>1 and p[0] == valid_waveform_prefix[0]) or (valid_waveform_prefix[0] in p)):
-                                #    if cscreen is not None and DEBUG_VERIFICATION:
-                                #        cscreen.addstr(13,0,"Received start of prefix at timestamp: " + str(pBlock.ts_sec + 0.000001*pBlock.ts_usec))
-                                #        cscreen.addstr(14,4,"Starting payload: " + str(p))
-                                #        cscreen.addstr(15,4,"New payload string: " + str(payloadString))
-                    elif (byteCount > 0): #if we received a payload not of length 512, ignore it and flush the buffer :(
-                        payloadString = b''
-                        processStartIndex = 0
-                        processEndIndex = 0
-                        byteCount = 0
+                                #XXX
+                                if DEBUG_LOG and VERBOSE_LOGGING:
+                                    debug_log(debug_log_path, "Received payload")
+                                if ((l==1 and p==valid_waveform_prefix[0]) or (l>1 and p[0] == valid_waveform_prefix[0]) or (valid_waveform_prefix[0] in p)):
+                                    if DEBUG_LOG and DEBUG_VERIFICATION:
+                                        debug_log(debug_log_path,"Received start of waveform prefix")
+                                        debug_log(debug_log_path,"Starting payload: " + str(p))
+                                        debug_log(debug_log_path,"New payload string: " + str(payloadString))
+                        elif byteCount > 0:
+                            #received packet from the device, but it's not valid; need to flush the buffer.
+                            
+                            if DEBUG_LOG and VERBOSE_LOGGING:
+                                debug_log(debug_log_path, "Received invalid payload, discarding it and flushing buffer")
+                            if CURSES:
+                                cscreen.addstr(7,0,"Flushed buffer at: "+str(pBlock.ts_sec + 0.000001*pBlock.ts_usec))
+                                cscreen.refresh()
+                            payloadString = b''
+                            processStartIndex = 0
+                            processEndIndex = 0
+                            byteCount = 0
+                        
+                    else: #if we received an unwanted payload, ignore it.
+                        pass
+                        
+                    #XXX
+                    if DEBUG_LOG and VERBOSE_LOGGING and DEBUG_VERIFICATION:
+                        debug_log(debug_log_path, "Payload string: "+str(payloadString))
                 
                 elif not file_mode and byteCount > 0:
                     #data is waiting in buffer, and we have time to process it
@@ -466,7 +499,10 @@ def main(cscreen = None):
                             #we found the next waveform's prefix!
                             processEndIndex = nextPrefixIndex + processEndIndex
                             #prepare this waveform
-                            wf = process_waveform_region(payloadString[processStartIndex:processEndIndex],cscreen)
+                            if state.device_class == DEVICE_PROTOTYPE:
+                                wf = process_waveform_region_prototype(payloadString[processStartIndex:processEndIndex],cscreen)
+                            else:
+                                wf = process_waveform_region(payloadString[processStartIndex:processEndIndex],cscreen)
                             #push this waveform into the deque.
                             wf_deque.append(wf)
                             if not(cscreen is None):
@@ -673,6 +709,10 @@ def main(cscreen = None):
             
     print("All done. :)")
 
+def debug_log(debug_log_path, str):
+    with open(debug_log_path,'a') as f:
+        f.write("["+dt.datetime.now().strftime("%Y-%m-%d %H:%M:%S.%f")+"] "+str+'\n')
+
 def toggle_logging(state):
     #START/STOP LOGGING.
     if state.logging:
@@ -703,6 +743,32 @@ def process_waveform_region(pString,cscreen = None):
     waveform = convert_waveform_region(waveform_region)
     #we can do anything with this waveform
     return waveform
+
+def process_waveform_region_prototype(pString,cscreen = None):
+    if not cscreen is None and DEBUG_VERIFICATION:
+        cscreen.addstr(8,4,"Waveform prefix: "+str(pString[0:6]))
+        cscreen.refresh()
+    elif DEBUG_VERIFICATION:
+        print("Prefix: "+str(pString[0:6])+'\n')
+    waveform = convert_waveform_region_prototype(pString)[6:-1]
+    #we can do anything with this waveform
+    return waveform
+
+def convert_waveform_region_prototype(pString):
+    """takes a bytestring of arbitrary length, converts it into little-endian int16s. ignores trailing odd bytes"""
+    N = len(pString)
+    Nh = int(N/2)
+    concat = [0]*Nh
+    for i in range(Nh):
+        vl = pString[2*i] #indexing with a scalar returns an integer
+        vr = pString[2*i+1]
+        #combine , little endian
+        value = ((vr<<8)+vl)
+        #convert to signed integer
+        if (value & 0x8000 != 0):
+            value = value - 2**16
+        concat[i] = value
+    return concat
 
 def convert_waveform_region(pString):
     """takes a bytestring of arbitrary length, converts it into big-endian int16s. ignores trailing odd bytes"""

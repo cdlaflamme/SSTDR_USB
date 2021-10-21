@@ -2,6 +2,7 @@
 *.csv
 *.7z
 *.dll
+log.txt
 
 # Byte-compiled / optimized / DLL files
 __pycache__/
