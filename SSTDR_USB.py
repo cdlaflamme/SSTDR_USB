@@ -61,9 +61,16 @@ import ui_elements as ui
 ######################################################
 USE_CURSES = True
 VERIFY_WAVEFORMS = True
-DEBUG_VERIFICATION = True
 DEBUG_LOG = True
+DEBUG_VERIFICATION = False
 VERBOSE_LOGGING = False
+DEBUG_LAYOUT = True
+
+#FAULT_DETECTION_METHOD = fault_detection.METHOD_NONE
+FAULT_DETECTION_METHOD = fault_detection.METHOD_BLS_PEAKS
+#FAULT_DETECTION_METHOD = fault_detection.METHOD_LOW_PASS_PEAKS
+#FAULT_DETECTION_METHOD = fault_detection.METHOD_BLS_DEVIATION_CORRECTION
+
 
 SCREEN_SIZE = SCREEN_X, SCREEN_Y = 800, 480
 TERMINAL_Y = 100
@@ -124,9 +131,11 @@ def main(cscreen = None):
     yaml_path = 'default.yaml'
     time_interval = -1
     debug_log_path = 'log.txt'
+    baseline_index = 0
+    terminal_index = 0
     
     #read cmd line arguments
-    valid_args = ['-yaml', 'y', '-filter', '-f', '-address', '-a', '-file', '-out', '-o', '-curses', '-c', '-no-curses', '-nc', '-interval', '-i', '-t']
+    valid_args = ['-yaml', 'y', '-filter', '-f', '-address', '-a', '-file', '-out', '-o', '-curses', '-c', '-no-curses', '-nc', '-interval', '-i', '-t', '-bli','-tli','-ti']
     args = {}
     skip = False
     for i,arg in enumerate(sys.argv):
@@ -146,6 +155,10 @@ def main(cscreen = None):
         elif arg in ['-file']:
             file_mode = True
             input_path = value
+        elif arg in ['-bli']:
+            baseline_index = int(value)
+        elif arg in ['-tli', '-ti']:
+            terminal_index = int(value)
         elif arg in ['-out', '-o']:
             output_path = value
         elif arg in ['-interval', '-i', '-t']:
@@ -284,14 +297,7 @@ def main(cscreen = None):
     bg_surf.convert()
     bg_rect = bg_surf.get_rect()
     bg_surf.fill(BG_COLOR)
-    """
-    for r in range(int(SCREEN_Y / grass_rect.h+1)):
-        for c in range(int(SCREEN_X / grass_rect.w+1)):
-            bg_surf.blit(grass_surf, grass_rect)
-            grass_rect.move_ip(grass_rect.w,0)
-        grass_rect.x = 0
-        grass_rect.move_ip(0, grass_rect.h)
-    """
+    
     line_surf = pygame.Surface((SCREEN_X, BORDER_WIDTH))
     line_surf.fill(COLOR_ORANGE)
     line_rect = line_surf.get_rect()
@@ -338,6 +344,8 @@ def main(cscreen = None):
             raise Exception("Error: unknown layout field in layout yaml file.")
     except:
         print("Error: invalid layout yaml file.")
+        if DEBUG_LOG:
+            debug_log(debug_log_path, "Error: invalid layout yaml file.")
         return
     
     ARRAY_SIZE = (panel_cols*(panel_rect.w + PANEL_PADDING[0]), panel_rows*(panel_rect.h + PANEL_PADDING[1]))
@@ -354,8 +362,8 @@ def main(cscreen = None):
     WIRE_COORDS = []
     for p in PANEL_COORDS:
         panel_rect.topleft = p
-        WIRE_COORDS.append((panel_rect.center[0] + array_rect.topleft[0], panel_rect.center[1] + array_rect.topleft[1]))
-    WIRE_COORDS.insert(0,(0,WIRE_COORDS[0][1]))
+        WIRE_COORDS.append((panel_rect.center[0] + array_rect.topleft[0], panel_rect.center[1] + array_rect.topleft[1])) #places wire nodes at each panel center
+    WIRE_COORDS.insert(0,(0,WIRE_COORDS[0][1]))#insert wire nodes at x=0 and same y as first & last panels in string
     WIRE_COORDS.append((0,WIRE_COORDS[-1][1]))
     pygame.draw.lines(bg_surf, WIRE_COLOR, False, WIRE_COORDS, WIRE_WIDTH)
 
@@ -375,7 +383,8 @@ def main(cscreen = None):
     ##              FAULT DETECTION SETUP               ##
     ######################################################
 
-    detector = fault_detection.Detector(fault_detection.METHOD_NONE)
+    detector = fault_detection.Detector(FAULT_DETECTION_METHOD)
+    #detector = fault_detection.Detector(fault_detection.METHOD_NONE)
     fault = (fault_detection.FAULT_NONE, 0)
     terminal_waveform = None
     
@@ -413,8 +422,10 @@ def main(cscreen = None):
                 #take packet from Q, process in some way
                 if file_mode:
                     #TODO change this to whatever the baseline index ought to be
-                    if input_row_index == 12:
+                    if input_row_index == baseline_index:
                         detector.set_baseline(input_data[input_row_index][3:])
+                    if input_row_index == terminal_index and FAULT_DETECTION_METHOD == fault_detection.METHOD_BLS_DEVIATION_CORRECTION:
+                        detector.set_terminal(input_data[input_row_index][3:])
                     if input_row_index == 0:
                         first_time_played = time.time()
                         first_timestamp = input_data[0][2]
@@ -468,7 +479,7 @@ def main(cscreen = None):
                             
                             if DEBUG_LOG and VERBOSE_LOGGING:
                                 debug_log(debug_log_path, "Received invalid payload, discarding it and flushing buffer")
-                            if CURSES:
+                            if USE_CURSES:
                                 cscreen.addstr(7,0,"Flushed buffer at: "+str(pBlock.ts_sec + 0.000001*pBlock.ts_usec))
                                 cscreen.refresh()
                             payloadString = b''
@@ -544,7 +555,7 @@ def main(cscreen = None):
                     ###################################################################################################################################
                     #       PYFORMULAS: visualize waveform
                     ###################################################################################################################################
-                    """
+                    
                     #some code from https://stackoverflow.com/questions/40126176/fast-live-plotting-in-matplotlib-pyplot
                     plt.clf()
                     plt.xlabel("Distance (feet)")
@@ -559,19 +570,20 @@ def main(cscreen = None):
                         plt.xlim((fault_detection.SPLINE_FEET_VECTOR[0]-detector.spline_feet_offset, fault_detection.SPLINE_FEET_VECTOR[-1]-detector.spline_feet_offset))
                     else:
                         #plot BLS
+                        ylim = ((-2**16,2**16))
                         bls = detector.last_processed_waveform - detector.processed_baseline
                         max_f = fault_detection.SPLINE_FEET_VECTOR[np.argmax(bls)]-detector.spline_feet_offset
                         plt.plot(fault_detection.SPLINE_FEET_VECTOR-detector.spline_feet_offset, bls)
-                        plt.plot([max_f, max_f], [-750, 750])
+                        plt.plot([max_f, max_f], ylim)
                         #plt.ylim((-1,1))
-                        plt.ylim((-(750), 750))
+                        plt.ylim(ylim)
                         plt.xlim((fault_detection.SPLINE_FEET_VECTOR[0]-detector.spline_feet_offset, fault_detection.SPLINE_FEET_VECTOR[-1]-detector.spline_feet_offset))
                     
                     fig.canvas.draw()
                     image = np.frombuffer(fig.canvas.tostring_rgb(), dtype=np.uint8)
                     image = image.reshape(fig.canvas.get_width_height()[::-1] + (3,))
                     plot_window.update(image)
-                    """
+                    
                     ###################################################################################################################################
                     #       PYGAME: fault visualization & event queue
                     ###################################################################################################################################
@@ -606,7 +618,7 @@ def main(cscreen = None):
                                 
                     #per-frame logic here
                     is_fault = (fault[0] != fault_detection.FAULT_NONE)
-                    fault_d_f = fault[1]
+                    fault_d_f = fault[1] #fault distance in feet, before correcting for panel electrical length
                     
                     if (is_fault):
                         d = 0
@@ -614,16 +626,20 @@ def main(cscreen = None):
                         py = WIRE_COORDS[0][1]
                         hazard_point = WIRE_COORDS[-1]
                         
-                        #determine which panel the fault is AFTER
+                        #determine the index of the first panel after the fault
                         for i in range(len(panel_ds)):
                             if (panel_ds[i] > fault_d_f):
-                                break                        
-                        #get the distance from the SSTDR positive lead to the pre-fault point ('point' being a point in WIRE_COORDS)
+                                break
+                        #i is now the index of the first panel AFTER the fault. if i=0, it means the fault is between the SSTDR and the first panel.
+                        #if i is len(panel_ds), it means no panel is after the fault: it is between the final panel and the SSTDR.
+                        
+                        #get the distance from the SSTDR positive lead to the pre-fault node. distance is in feet
+                        #('node' being a point/node in WIRE_COORDS; currently nodes are located halfway through the panels)
                         if i == 0:
                             pre_d = 0
                         else:
                             pre_d = panel_ds[i-1]
-                        #get the distance from the SSTDR positive lead to the post-fault point
+                        #get the distance from the SSTDR positive lead to the post-fault node
                         if i == len(panel_ds):
                             post_d = panel_ds[-1] + panel_layout['home_cable_length'] #point in feet at final SSTDR terminal
                         else:
@@ -639,7 +655,7 @@ def main(cscreen = None):
                         fault_cable_location = fault_d_f - panel_length*i
                         
                         fault_name = fault_detection.get_fault_name(fault[0])
-                        fault_text_surf = TERMINAL_FONT.render(fault_name + " located at " + str(round(fault_cable_location,3)) + " feet", True, TEXT_COLOR)
+                        fault_text_surf = TERMINAL_FONT.render(fault_name + " located at " + str(round(fault_cable_location,3)) + " feet ("+str(fault_d_f)+"ft. B.F.)", True, TEXT_COLOR)
                     else:
                         fault_text_surf = TERMINAL_FONT.render("System OK", True, TEXT_COLOR)
                     fault_text_rect = fault_text_surf.get_rect()
@@ -793,13 +809,14 @@ def load_panel_layout(yfile_path):
             data = yaml.safe_load(f)
         panel_series = data[0]
         N = panel_series['panel_count'] #TODO: only loads 0th series. for multi-series systems, this should be changed
-        panel_ds = [0]*N #init empty array
+        panel_ds = [0]*N #init empty array. panel_ds is distance in feet from the SSTDR to the center of each panel's electrical length, accounting for module & leading cables
         panel_ds[0] = panel_series['header_cable_length'] + panel_series['panel_cable_length'] + 1/2*panel_series['panel_electrical_length']
         for i in range(1,N):
             panel_ds[i] = panel_ds[i-1] + 2*panel_series['panel_cable_length'] + panel_series['panel_electrical_length'] #elec length not halved; there's two contributing panels
         #returns tuple:
         #   panel_series: layout dictionary directly loaded from .yaml
         #   panel_ds: list of panel distances from SSTDR, in feet
+        #   panel length: electrical length of panels
         return (panel_series, panel_ds, panel_series['panel_electrical_length'])
         
     except:
