@@ -460,6 +460,7 @@ def main(cscreen = None):
             while(True):
                 #take packet from Q, process in some way
                 if file_mode:
+                    state.log_number = int(input_data[input_row_index][1])
                     if input_row_index in baseline_indices:
                         detector.set_baseline(input_data[input_row_index][3:])
                     if input_row_index in terminal_indices and FAULT_DETECTION_METHOD == fault_detection.METHOD_BLS_DEVIATION_CORRECTION:
