@@ -10,13 +10,10 @@ Created on Wed Oct 23 13:50:16 2019
 #notices waveforms that are transmitted and visualizes them.
 #waits for user to quit, then tells receiver to halt.
 
-#TODO
-#add testing mode, where USBPcap is not used, and instead an input file is looped forever
-
 """
 DEPENDENCIES
 - USBPcap installation
-- libusb-1.0.dll (for pyusb. needs to be found in system PATH)
+- libusb-1.0.dll (for pyusb. needs to be found in system PATH. solves "No backend available" from pyusb)
 - matplotlib (in conda)
 - numpy (in conda)
 - curses (in pip, use "windows-curses" on windows)
@@ -50,6 +47,7 @@ import pygame
 import yaml
 import usb
 import datetime as dt
+import re
 
 #homegrown code
 from PcapPacketReceiver import *
@@ -83,16 +81,20 @@ COLOR_GREY      = (128, 128, 128)
 COLOR_ORANGE    = (255, 140,   0)
 COLOR_BLUE      = (  0,   0, 200)
 COLOR_BLACK     = ( 10,  10,  10)
+COLOR_RED       = ( 200,  0,   0)
 
 BG_COLOR = COLOR_GREY
 TERMINAL_COLOR = COLOR_WHITE
 WIRE_COLOR = COLOR_BLUE
 TEXT_COLOR = COLOR_BLACK
+CONNECTOR_COLOR = COLOR_RED
 
 PANEL_SCALE = 1/15
 PANEL_PADDING = (50, 50)
 WIRE_WIDTH = 2
 PANEL_SCREEN_X_RATIO = 1/2+1/8
+CONNECTOR_SIZE = 5
+CONNECTOR_WIDTH = WIRE_WIDTH
 
 ######################################################
 ##                 DEVICE SUPPORT                   ##
@@ -131,8 +133,8 @@ def main(cscreen = None):
     yaml_path = 'default.yaml'
     time_interval = -1
     debug_log_path = 'log.txt'
-    baseline_index = 0
-    terminal_index = 0
+    baseline_indices = [0]
+    terminal_indices = [0]
     
     #read cmd line arguments
     valid_args = ['-yaml', 'y', '-filter', '-f', '-address', '-a', '-file', '-out', '-o', '-curses', '-c', '-no-curses', '-nc', '-interval', '-i', '-t', '-bli','-tli','-ti']
@@ -156,9 +158,9 @@ def main(cscreen = None):
             file_mode = True
             input_path = value
         elif arg in ['-bli']:
-            baseline_index = int(value)
+            baseline_indices = [int(x) for x in value.split(',')]
         elif arg in ['-tli', '-ti']:
-            terminal_index = int(value)
+            terminal_indices = [int(x) for x in value.split(',')]
         elif arg in ['-out', '-o']:
             output_path = value
         elif arg in ['-interval', '-i', '-t']:
@@ -190,7 +192,7 @@ def main(cscreen = None):
     #prepare usb sniffing
     #create logging state
     state = MonitorState()
-    if (arg_filter is None or arg_address is None):
+    if not file_mode and (arg_filter is None or arg_address is None):
         #auto-detect an SSTDR device. depending on the device, determine the device class (which influences data extraction)
         #try to find prototype device
         sstdr_device = usb.core.find(idVendor=0x067b, idProduct=0x2303)
@@ -287,8 +289,8 @@ def main(cscreen = None):
     panel_surf = pygame.transform.scale(panel_surf, (int(panel_surf.get_width()*PANEL_SCALE), int(panel_surf.get_height()*PANEL_SCALE)))
     panel_rect = panel_surf.get_rect()
 
-    grass_surf = pygame.image.load(os.path.join("Assets", "grass.png"))
-    grass_rect = grass_surf.get_rect()
+    #grass_surf = pygame.image.load(os.path.join("Assets", "grass.png"))
+    #grass_rect = grass_surf.get_rect()
 
     hazard_surf = pygame.image.load(os.path.join("Assets", "hazard.png"))
     hazard_rect = hazard_surf.get_rect()
@@ -319,35 +321,61 @@ def main(cscreen = None):
     bg_surf.blit(text_surf, text_rect)
 
     #load panel layout
-    panel_layout, panel_ds, panel_length = load_panel_layout(yaml_path)
+    panel_layout, connector_ds, panel_length = load_panel_layout(yaml_path)
     panel_cols = panel_rows = 0
     try:
-        N = len(panel_ds)
-        H = int(N/2)-1
+        N = len(connector_ds) #number of connectors; = (panel count)+1
+        P = N-1 #number of panels
+        H = int(P/2)-1 #H for half; the number of panels in one row
         if (panel_layout['layout'] == 'loop'):
             panel_rows = 2
-            panel_cols = int(N/2+0.5)
+            panel_cols = int(P/2+0.5)
             r = 0
-            PANEL_COORDS = [(c*(PANEL_PADDING[0] + panel_rect.w), r*(PANEL_PADDING[1] + panel_rect.h)) for c in range(0,H+1)]
-            if (len(panel_ds)%2):
+            PANEL_COORDS = [(c*(PANEL_PADDING[0] + panel_rect.w), r*(PANEL_PADDING[1] + panel_rect.h)) for c in range(0,H+1)] #pixel coordinates for panels in top row
+            CONNECTOR_COORDS = [(x - PANEL_PADDING[0],y) for x,y in PANEL_COORDS] #pixel coordinates of MC-4 connectors for top row; just bisects the panel padding
+            
+            #WIRE_COORDS.append((panel_rect.center[0] + array_rect.topleft[0], panel_rect.center[1] + array_rect.topleft[1])) #places wire nodes at each panel center
+
+            if (P%2 == 1):
+                #add odd panel
                 r = 0.5
-                PANEL_COORDS.append(((H+1)*(PANEL_PADDING[0] + panel_rect.w), r*(PANEL_PADDING[1] + panel_rect.h)))
+                new_panel_coord = ((H+1)*(PANEL_PADDING[0] + panel_rect.w), r*(PANEL_PADDING[1] + panel_rect.h)) #central panel for odd panel counts
+                PANEL_COORDS = PANEL_COORDS + [new_panel_coord]
+                #add connectors diagonally positioned before & after odd panel
+                CONNECTOR_COORDS = CONNECTOR_COORDS + [(new_panel_coord[0] - PANEL_PADDING[0], new_panel_coord[1] - PANEL_PADDING[1]/2**0.5)]
+                CONNECTOR_COORDS = CONNECTOR_COORDS + [(new_panel_coord[0] - PANEL_PADDING[0], new_panel_coord[1] + PANEL_PADDING[1]/2**0.5)]
+            else:
+                #add connector coord vertically between the top & bottom panels
+                CONNECTOR_COORDS = CONNECTOR_COORDS + [(PANEL_COORDS[-1][0], PANEL_COORDS[-1][1]+0.5*PANEL_PADDING[1])]
             r = 1
-            PANEL_COORDS = PANEL_COORDS + [(c*(PANEL_PADDING[0] + panel_rect.w), r*(PANEL_PADDING[1] + panel_rect.h)) for c in range(H,-1,-1)]
-        
+            bottom_panel_coords = [(c*(PANEL_PADDING[0] + panel_rect.w), r*(PANEL_PADDING[1] + panel_rect.h)) for c in range(H,-1,-1)] #pixel coordinates for panels in bottom row
+            bottom_connector_coords = [(x - PANEL_PADDING[0], y) for x,y in bottom_panel_coords] #pixel coordinates of MC-4 connectors for bottom row; just bisects the panel padding
+            if (P%2 == 1):
+                #amend first connector from the bottom row to be diagonally positioned (we placed a diagonal one earlier, just remove the first one
+                #bottom_connector_coords = bottom_connector_coords[1:]
+                pass
+            PANEL_COORDS = PANEL_COORDS + bottom_panel_coords
+            CONNECTOR_COORDS= CONNECTOR_COORDS+ bottom_connector_coords
+            
         elif(panel_layout['layout'] == 'home-run'):
             panel_rows = 1
             panel_cols = N
             r = 0
-            PANEL_COORDS = [(c*(PANEL_PADDING[0] + panel_rect.w), r*(PANEL_PADDING[1] + panel_rect.h)) for c in range(0,N)]
+            PANEL_COORDS = [(c*(PANEL_PADDING[0] + panel_rect.w), r*(PANEL_PADDING[1] + panel_rect.h)) for c in range(0,N)] #one long row, with a home-run leading all the way back
+            CONNECTOR_COORDS = [(x - PANEL_PADDING[0]/2+array_rect.topleft[0],y+array_rect.topleft[1]) for x,y in PANEL_COORDS] #pixel coordinates of MC-4 connectors for top row; just bisects the panel padding
         else:
             raise Exception("Error: unknown layout field in layout yaml file.")
     except:
         print("Error: invalid layout yaml file.")
+        print("Exception:")
+        print('='*40)
+        traceback.print_exc(file=sys.stdout)
+        print('='*40)
         if DEBUG_LOG:
             debug_log(debug_log_path, "Error: invalid layout yaml file.")
         return
     
+    #array surface, panels are blitted onto this
     ARRAY_SIZE = (panel_cols*(panel_rect.w + PANEL_PADDING[0]), panel_rows*(panel_rect.h + PANEL_PADDING[1]))
     array_surf = pygame.Surface(ARRAY_SIZE, pygame.SRCALPHA)
     array_surf.convert()
@@ -359,6 +387,7 @@ def main(cscreen = None):
     array_rect = array_surf.get_rect()
     array_rect.center = (int(SCREEN_X*PANEL_SCREEN_X_RATIO), int(VISUAL_Y/2))
 
+    #draw wires onto background surface
     WIRE_COORDS = []
     for p in PANEL_COORDS:
         panel_rect.topleft = p
@@ -367,6 +396,16 @@ def main(cscreen = None):
     WIRE_COORDS.append((0,WIRE_COORDS[-1][1]))
     pygame.draw.lines(bg_surf, WIRE_COLOR, False, WIRE_COORDS, WIRE_WIDTH)
 
+    #draw connectors onto background surface
+    #update connector coords to align with array surface
+    CONNECTOR_COORDS = [(x+array_rect.topleft[0]+panel_rect.width/2, y+array_rect.topleft[1]+panel_rect.height/2) for x,y in CONNECTOR_COORDS]
+    for x,y in CONNECTOR_COORDS:
+        pygame.draw.circle(bg_surf, CONNECTOR_COLOR, (x,y), CONNECTOR_SIZE, width=CONNECTOR_WIDTH)
+    #then append 0 and end points to the connector coords. We want these for positioning but we don't want to draw them.
+    CONNECTOR_COORDS.insert(0,(0,CONNECTOR_COORDS[0][1]))#insert wire nodes at x=0 and same y as first & last panels in string
+    CONNECTOR_COORDS.append((0,CONNECTOR_COORDS[-1][1]))
+    
+    
     term_surf = pygame.Surface((SCREEN_X, TERMINAL_Y - int(BORDER_PADDING/2) - BORDER_WIDTH))
     term_surf.fill(TERMINAL_COLOR)
     term_rect = term_surf.get_rect()
@@ -421,10 +460,9 @@ def main(cscreen = None):
             while(True):
                 #take packet from Q, process in some way
                 if file_mode:
-                    #TODO change this to whatever the baseline index ought to be
-                    if input_row_index == baseline_index:
+                    if input_row_index in baseline_indices:
                         detector.set_baseline(input_data[input_row_index][3:])
-                    if input_row_index == terminal_index and FAULT_DETECTION_METHOD == fault_detection.METHOD_BLS_DEVIATION_CORRECTION:
+                    if input_row_index in terminal_indices and FAULT_DETECTION_METHOD == fault_detection.METHOD_BLS_DEVIATION_CORRECTION:
                         detector.set_terminal(input_data[input_row_index][3:])
                     if input_row_index == 0:
                         first_time_played = time.time()
@@ -622,31 +660,30 @@ def main(cscreen = None):
                     
                     if (is_fault):
                         d = 0
-                        px = WIRE_COORDS[0][0]
-                        py = WIRE_COORDS[0][1]
-                        hazard_point = WIRE_COORDS[-1]
+                        px = CONNECTOR_COORDS[0][0]
+                        py = CONNECTOR_COORDS[0][1]
+                        hazard_point = CONNECTOR_COORDS[-1]
                         
-                        #determine the index of the first panel after the fault
-                        for i in range(len(panel_ds)):
-                            if (panel_ds[i] > fault_d_f):
+                        #determine the index of the first connector after the fault
+                        for i in range(N):
+                            if (connector_ds[i] > fault_d_f):
                                 break
-                        #i is now the index of the first panel AFTER the fault. if i=0, it means the fault is between the SSTDR and the first panel.
-                        #if i is len(panel_ds), it means no panel is after the fault: it is between the final panel and the SSTDR.
+                        #i is now the index of the first connector junction AFTER the fault. if i=0, it means the fault is between the SSTDR and the first connector.
+                        #if i is len(connector_ds), it means no connector is after the fault: it is between the final connector and the SSTDR.
                         
-                        #get the distance from the SSTDR positive lead to the pre-fault node. distance is in feet
-                        #('node' being a point/node in WIRE_COORDS; currently nodes are located halfway through the panels)
+                        #get the distance from the SSTDR positive lead to the pre-fault connector. distance is in feet
                         if i == 0:
                             pre_d = 0
                         else:
-                            pre_d = panel_ds[i-1]
+                            pre_d = connector_ds[i-1]
                         #get the distance from the SSTDR positive lead to the post-fault node
-                        if i == len(panel_ds):
-                            post_d = panel_ds[-1] + panel_layout['home_cable_length'] #point in feet at final SSTDR terminal
+                        if i == N:
+                            post_d = connector_ds[-1] + panel_layout['home_cable_length'] #point in feet at final SSTDR terminal
                         else:
-                            post_d = panel_ds[i]          
+                            post_d = connector_ds[i]          
                         #get PIXEL locations of pre-fault and post-fault points, then calculate PIXEL location of fault point
-                        pre_x, pre_y = WIRE_COORDS[i] #WIRE COORDS has an extra point at i=0 (where x=0), so this chooses the point of the panel/terminal BEFORE the fault
-                        post_x, post_y = WIRE_COORDS[i+1] #certainly safe; WIRE_COORDS has two more points than PANEL_COORDS. chooses the point AFTER the fault
+                        pre_x, pre_y = CONNECTOR_COORDS[i] #CONNECTOR_COORDS has an extra point at i=0 (where x=0), so this chooses the point of the panel/terminal BEFORE the fault
+                        post_x, post_y = CONNECTOR_COORDS[i+1] #certainly safe; CONNECTOR_COORDS has two more points than PANEL_COORDS. chooses the point AFTER the fault
                         hsr = (fault_d_f - pre_d)/(post_d - pre_d) #hazard step ratio: ratio at which the fault lies in between post point and pre point, s.t. fault_d = pre_d + hsr*(post_d - pre_d)
                         step = ((post_x-pre_x)**2 + (post_y-pre_y)**2)**0.5 #distance IN PIXELS between post and pre points
                         hazard_rect.center = (pre_x + hsr*(post_x-pre_x), pre_y + hsr*(post_y-pre_y))
@@ -655,7 +692,7 @@ def main(cscreen = None):
                         fault_cable_location = fault_d_f - panel_length*i
                         
                         fault_name = fault_detection.get_fault_name(fault[0])
-                        fault_text_surf = TERMINAL_FONT.render(fault_name + " located at " + str(round(fault_cable_location,3)) + " feet ("+str(fault_d_f)+"ft. B.F.)", True, TEXT_COLOR)
+                        fault_text_surf = TERMINAL_FONT.render(fault_name + " located at " + str(round(fault_cable_location,3)) + " feet", True, TEXT_COLOR)
                     else:
                         fault_text_surf = TERMINAL_FONT.render("System OK", True, TEXT_COLOR)
                     fault_text_rect = fault_text_surf.get_rect()
@@ -809,15 +846,15 @@ def load_panel_layout(yfile_path):
             data = yaml.safe_load(f)
         panel_series = data[0]
         N = panel_series['panel_count'] #TODO: only loads 0th series. for multi-series systems, this should be changed
-        panel_ds = [0]*N #init empty array. panel_ds is distance in feet from the SSTDR to the center of each panel's electrical length, accounting for module & leading cables
-        panel_ds[0] = panel_series['header_cable_length'] + panel_series['panel_cable_length'] + 1/2*panel_series['panel_electrical_length']
+        connector_ds = [0]*(N+1) #init empty array. connector_ds is distance in feet from the SSTDR to each MC-4 connector, accounting for module length, module cables & leading cables
+        connector_ds[0] = panel_series['header_cable_length'] + panel_series['panel_cable_length']
         for i in range(1,N):
-            panel_ds[i] = panel_ds[i-1] + 2*panel_series['panel_cable_length'] + panel_series['panel_electrical_length'] #elec length not halved; there's two contributing panels
+            connector_ds[i] = connector_ds[i-1] + 2*panel_series['panel_cable_length'] + panel_series['panel_electrical_length']
         #returns tuple:
         #   panel_series: layout dictionary directly loaded from .yaml
-        #   panel_ds: list of panel distances from SSTDR, in feet
+        #   connector_ds: list of connector distances from SSTDR, in feet
         #   panel length: electrical length of panels
-        return (panel_series, panel_ds, panel_series['panel_electrical_length'])
+        return (panel_series, connector_ds, panel_series['panel_electrical_length'])
         
     except:
         print("Exception Occurred:")
